@@ -1006,7 +1006,7 @@ def show_help(prg):
     print()
     print('  -p, --port port_num\n'
           '      Server port to connect to (default %s).' %
-          (stchttp.DEFAULT_PORT,))
+          (stchttp.HTTP_DEFAULT_PORT,))
     print()
 
 
@@ -1028,8 +1028,8 @@ def main():
     ap.add_argument('--file', '-f', metavar='FILE_PATH', dest='cmd_file',
                     help='Read commands from the specified file.')
     ap.add_argument('--port', '-p', metavar='PORT', type=int,
-                    help='Server TCP port to connect to (default %s).'
-                    % (stchttp.DEFAULT_PORT,))
+                    help='Server port to connect to (default %s).'
+                    % (stchttp.HTTP_DEFAULT_PORT,))
     ap.add_argument('--version', '-V', action='store_true',
                     help='Print stcrestclient version number and exit.')
     args = ap.parse_args()

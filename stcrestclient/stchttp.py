@@ -24,8 +24,8 @@ except ValueError:
 
 # Use this port if it is not specified when creating StcHttp, or by the
 # STC_SERVER_PORT environment variable.
-DEFAULT_PORT = 80
-
+HTTP_DEFAULT_PORT  = 80
+HTTPS_DEFAULT_PORT = 443
 
 class StcHttp(object):
 
@@ -34,34 +34,50 @@ class StcHttp(object):
 
     """
 
-    def __init__(self, server=None, port=None, api_version=1,
+    def __init__(self, server=None, port=None, api_version=1, use_https=False, ca_cert="",
                  debug_print=False, timeout=None):
         """Initialize the REST API wrapper object.
 
         If the port to connect to is not specified by the port argument, or by
         the STC_SERVER_PORT environment variable, then try connecting on the
-        DEFAULT_PORT.
+        80 for HTTP or 443 for HTTPS.
 
         Arguments:
         server      -- STC REST API server to connect to. None to use environ.
-        port        -- HTTP port to connect to server on.  Use environment
-                       variable STC_SERVER_PORT or DEFAULT_PORT if None.
+        port        -- HTTP/HTTPS port to connect to server on.  Use environment
+                       variable STC_SERVER_PORT or default port if None.
+                       Default port is 80 for HTTP and 443 for HTTPS.
+        use_https   -- Identify if STC REST API server uses HTTPS or not. 
+                       True for HTTPS server while False for HTTP server.
+        ca_cert     -- Identify the trusted CA-Signed certificates, 
+                       e.g., ca_cert='/root/aion/cert/ca_crt.pem'
         api_version -- What API version to use.
         debug_print -- Enable debug print statements.
         timeout     -- Number of seconds to wait for a response.
 
         """
+
+        default_port = HTTPS_DEFAULT_PORT if use_https else HTTP_DEFAULT_PORT
+        proto = 'https' if use_https else 'http'
+
         if not server:
             server = os.environ.get('STC_SERVER_ADDRESS')
             if not server:
                 raise RuntimeError('STC_SERVER_ADDRESS not set')
         if not port:
-            port = os.environ.get('STC_SERVER_PORT', DEFAULT_PORT)
+            port = os.environ.get('STC_SERVER_PORT', default_port)
+
+        if use_https:
+            cacert = os.environ.get('REQUESTS_CA_BUNDLE')
+            if not cacert and ca_cert == "":
+                raise RuntimeError('Trusted CA-Signed certificates not set to verify HTTPS server')
+            if ca_cert:
+                os.environ['REQUESTS_CA_BUNDLE'] = ca_cert
 
         self._dbg_print = bool(debug_print)
         rest = None
 
-        url = resthttp.RestHttp.url('http', server, port, 'stcapi')
+        url = resthttp.RestHttp.url(proto, server, port, 'stcapi')
         rest = resthttp.RestHttp(url, debug_print=debug_print, timeout=timeout)
         try:
             rest.get_request('sessions')
