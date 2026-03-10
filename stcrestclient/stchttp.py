@@ -1,9 +1,9 @@
 """
 STC REST API wrapper module.
 
-This module allows python scripts to call the STC Automation API using HTTP.
+This module allows python scripts to call the STC Automation API using HTTP or HTTPS.
 
-To specify the HTTP (REST API) server, the client must set the value of the
+To specify the HTTP/HTTPS (REST API) server, the client must set the value of the
 environment variable STC_SERVER_ADDRESS, or specify the server when creating
 the StcHttp object.
 
@@ -30,7 +30,7 @@ HTTPS_DEFAULT_PORT = 443
 class StcHttp(object):
 
     """
-    Spirent TestCenter ReST API wrapper object.
+    TestCenter ReST API wrapper object.
 
     """
 
