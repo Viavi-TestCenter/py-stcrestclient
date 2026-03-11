@@ -8,14 +8,14 @@ except ImportError:
 def main():
     setup(
         name='stcrestclient',
-        version= '1.9.4',
-        author='Spirent',
-        author_email='support@spirent.com',
+        version= '1.9.5',
+        author='VIAVI Solutions',
+        author_email='hse.support@viavisolutions.com',
         url='https://github.com/Spirent-STC/py-stcrestclient',
         description='stcrestclient: Client modules for STC ReST API',
         long_description = 'See https://github.com/Spirent-STC/py-stcrestclient#python-stc-rest-api-client-stcrestclient',
         license='http://www.opensource.org/licenses/mit-license.php',
-        keywords='Spirent TestCenter API',
+        keywords='TestCenter API',
         classifiers=['Development Status :: 5 - Production/Stable',
                      'Intended Audience :: Developers',
                      'License :: OSI Approved :: MIT License',
