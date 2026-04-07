@@ -24,12 +24,12 @@ import requests
 _REFRESH_THRESHOLD = 0.8
 
 
-class AionAuthError(Exception):
+class AionError(Exception):
     """Raised when an AION IAM or inventory operation fails."""
 
     def __init__(self, message, http_status=None):
         self.http_status = http_status
-        super(AionAuthError, self).__init__(message)
+        super(AionError, self).__init__(message)
 
 
 class AionAuth(object):
@@ -47,21 +47,21 @@ class AionAuth(object):
 
     """
 
-    def __init__(self, aion_url, ssl_verify=True, debug_print=False):
+    def __init__(self, aion_url, ca_cert='', debug_print=False):
         """
         Arguments:
         aion_url    -- Base URL of the AION platform, e.g. 'https://aion.example.com'
-        ssl_verify  -- Set to False to disable TLS certificate verification,
-                       or a path string to a CA bundle file.
+        ca_cert     -- Path to CA certificate file used to verify the AION platform
+                       HTTPS connection, e.g. '/path/to/aion_ca.pem'. 
         debug_print -- Enable debug print statements.
         """
         self._aion_url = aion_url.rstrip('/')
-        self._ssl_verify = ssl_verify
+        self._ssl_verify = ca_cert if ca_cert else True
         self._dbg_print = bool(debug_print)
         self._access_token = None
         self._refresh_token = None
         self._expires_in = 86400
-        self._login_time = 0.0
+        self._last_refresh_time = 0.0
 
     def get_default_org(self):
         """Return the default organization ID from the AION platform.
@@ -79,7 +79,7 @@ class AionAuth(object):
         if self._dbg_print:
             print('===> response status: %d %s' % (resp.status_code, resp.reason))
         if resp.status_code != 200:
-            raise AionAuthError(
+            raise AionError(
                 'failed to get default org: %d %s' % (resp.status_code, resp.text),
                 resp.status_code)
         data = resp.json()
@@ -119,7 +119,7 @@ class AionAuth(object):
         if self._dbg_print:
             print('===> response status: %d %s' % (resp.status_code, resp.reason))
         if resp.status_code != 200:
-            raise AionAuthError(
+            raise AionError(
                 'login failed: %d %s' % (resp.status_code, resp.text),
                 resp.status_code)
         self._store_tokens(resp.json())
@@ -136,7 +136,7 @@ class AionAuth(object):
 
         """
         if not self._refresh_token:
-            raise AionAuthError('no refresh token available; call login() first')
+            raise AionError('no refresh token available; call login() first')
         url = self._aion_url + '/api/iam/oauth2/token'
         if self._dbg_print:
             print('===> POST %s' % url)
@@ -150,7 +150,7 @@ class AionAuth(object):
         if self._dbg_print:
             print('===> response status: %d %s' % (resp.status_code, resp.reason))
         if resp.status_code != 200:
-            raise AionAuthError(
+            raise AionError(
                 'token refresh failed: %d %s' % (resp.status_code, resp.text),
                 resp.status_code)
         self._store_tokens(resp.json())
@@ -176,7 +176,7 @@ class AionAuth(object):
 
         """
         if not self._access_token:
-            raise AionAuthError('not logged in; call login() first')
+            raise AionError('not logged in; call login() first')
         url = self._aion_url + '/api/inv/product-instances'
         if self._dbg_print:
             print('===> GET %s' % url)
@@ -185,7 +185,7 @@ class AionAuth(object):
         if self._dbg_print:
             print('===> response status: %d %s' % (resp.status_code, resp.reason))
         if resp.status_code != 200:
-            raise AionAuthError(
+            raise AionError(
                 'failed to get product instances: %d %s' % (resp.status_code, resp.text),
                 resp.status_code)
         instances = resp.json()
@@ -208,21 +208,21 @@ class AionAuth(object):
             host = parsed.hostname
             port = parsed.port
             if not proto or not host or not port:
-                raise AionAuthError(
+                raise AionError(
                     'stcapi port entry has invalid url: %s' % stcapi_url)
             if self._dbg_print:
                 print('===> stcapi endpoint: %s://%s:%d' % (proto, host, port))
             return proto, host, port
         if node_name is not None and ui_port is not None:
-            raise AionAuthError(
+            raise AionError(
                 'no stcapi port entry found for node_name %s, ui_port %d' % (node_name, ui_port))
         if node_name is not None:
-            raise AionAuthError(
+            raise AionError(
                 'no stcapi port entry found for node_name %s' % node_name)
         if ui_port is not None:
-            raise AionAuthError(
+            raise AionError(
                 'no stcapi port entry found for ui_port %d' % ui_port)
-        raise AionAuthError('no stcapi port entry found in AION product instances')
+        raise AionError('no stcapi port entry found in AION product instances')
 
     def needs_refresh(self):
         """Return True if the access token should be refreshed proactively.
@@ -233,7 +233,7 @@ class AionAuth(object):
         """
         if not self._access_token:
             return False
-        elapsed = time.time() - self._login_time
+        elapsed = time.time() - self._last_refresh_time
         needed = elapsed >= self._expires_in * _REFRESH_THRESHOLD
         if needed and self._dbg_print:
             print('===> proactive token refresh needed (elapsed: %.0fs, threshold: %.0fs)'
@@ -249,4 +249,4 @@ class AionAuth(object):
         self._access_token = data['access_token']
         self._refresh_token = data['refresh_token']
         self._expires_in = float(data.get('expires_in', 86400))
-        self._login_time = time.time()
+        self._last_refresh_time = time.time()

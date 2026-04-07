@@ -130,9 +130,6 @@ sb_handle = stc.create('streamBlock', port_handle)
 # Apply config
 stc.apply()
 
-# Run STAK command to archive log files
-stc.perform('spirent.core.ArchiveDiagnosticLogsCommand')
-
 # Wait for sequencer to finish
 stc.wait_until_complete(timeout=30)
 
@@ -174,8 +171,8 @@ For example usage, look in the [examples](https://github.com/Spirent-STC/py-stcr
 | `password` | `AION_PASSWORD` | AION user password. |
 | `node_name` | — | AION node name hosting the target product instance, e.g. `10.109.120.117`. Use together with `ui_port` to uniquely identify an instance when multiple nodes or instances are present. |
 | `ui_port` | — | UI port of the target product instance. Use together with `node_name` to uniquely identify an instance when multiple instances are running on the same node. The UI port is the port number visible in AION's Product Manager web page (e.g. `64006`). Omit when only one instance is present. |
-| `product_ca_cert` | — | Path to CA certificate bundle used to verify the stcapi HTTPS connection, e.g. `/path/to/product_ca_cert.pem`. Required when the stcapi endpoint uses HTTPS. |
-| `aion_verify` | — | TLS verification for AION platform calls. Set to `False` to disable verification, or provide a path to a CA bundle. Defaults to `True`. |
+| `product_ca_cert` | — | Path to CA certificate file used to verify the stcapi HTTPS connection, e.g. `/path/to/product_ca_cert.pem`. Required when the stcapi endpoint uses HTTPS. |
+| `aion_ca_cert` | — | Path to CA certificate file used to verify the AION platform HTTPS connection, e.g. `'/path/to/aion_ca_cert.pem'`. Required when the AION platform uses HTTPS. |
 | `debug_print` | — | Enable debug output. Defaults to `False`. |
 | `timeout` | — | HTTP request timeout in seconds. Defaults to `None` (no timeout). |
 
@@ -215,22 +212,22 @@ stc = AionStcHttp(product_ca_cert='/path/to/product_ca_cert.pem')
 stc.new_session(user_name='myuser', session_name='mysession')
 ```
 
-### Obtaining the AION Cluster Certificate for aion_verify
+### Obtaining the AION Cluster Certificate for aion_ca_cert
 
-If the AION platform uses a self-signed certificate, set `aion_verify` to the path of the certificate file.  Use the following command to retrieve and save the certificate from the AION cluster:
+If the AION platform uses a self-signed certificate, set `aion_ca_cert` to the path of the certificate file.  Use the following command to retrieve and save the certificate from the AION cluster:
 
 ```bash
 echo | openssl s_client -connect 10.109.120.117:443 2>/dev/null | openssl x509 > aion_cluster.pem
 ```
 
-Replace `10.109.120.117` with the address of your AION cluster.  Then pass the saved file to `aion_verify`:
+Replace `10.109.120.117` with the address of your AION cluster.  Then pass the saved file to `aion_ca_cert`:
 
 ```python
 stc = AionStcHttp(
     aion_url='https://10.109.120.117',
     username='user@example.com',
     password='secret',
-    aion_verify='aion_cluster.pem',
+    aion_ca_cert='aion_cluster.pem',
 )
 ```
 

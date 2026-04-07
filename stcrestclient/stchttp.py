@@ -95,18 +95,6 @@ class StcHttp(object):
     def session_id(self):
         return self._sid
 
-    def set_token(self, token):
-        """Update the Bearer token sent with every request.
-
-        Used by AionStcHttp after a token refresh, but can also be called
-        directly if the caller manages token lifecycle externally.
-
-        Arguments:
-        token -- New Bearer token string.
-
-        """
-        self._rest.add_header('Authorization', 'Bearer ' + token)
-
     def timeout(self):
         """Return the current timeout value."""
         return self._rest.timeout()

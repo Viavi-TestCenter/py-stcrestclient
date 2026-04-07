@@ -65,11 +65,12 @@ class AionStcHttp(StcHttp):
                        desired one (e.g. 64006 selects the instance whose UI
                        port is 64006 and connects to its stcapi port).
                        Omit when only one instance is present.
-    product_ca_cert -- Path to CA certificate bundle used to verify the stcapi
+    product_ca_cert -- Path to CA certificate file used to verify the stcapi
                        HTTPS connection, e.g. '/path/to/product_ca_cert.pem'.
                        Required when the stcapi endpoint uses HTTPS.
-    aion_verify     -- False to skip TLS verification of the AION platform URL,
-                       or path to CA bundle for AION calls.
+    aion_ca_cert    -- Path to CA certificate file used to verify the AION
+                       platform HTTPS connection, e.g. '/path/to/aion_ca.pem'.
+                       Required when the AION platform uses HTTPS.
     debug_print     -- Enable debug output.
     timeout         -- HTTP request timeout in seconds.
 
@@ -81,7 +82,7 @@ class AionStcHttp(StcHttp):
     """
 
     def __init__(self, aion_url=None, username=None, password=None,
-                 node_name=None, ui_port=None, product_ca_cert='', aion_verify=True,
+                 node_name=None, ui_port=None, product_ca_cert='', aion_ca_cert='',
                  debug_print=False, timeout=None):
         aion_url = aion_url or os.environ.get('AION_URL')
         username = username or os.environ.get('AION_USERNAME')
@@ -95,7 +96,7 @@ class AionStcHttp(StcHttp):
             raise RuntimeError('password is required (or set AION_PASSWORD)')
 
         # Discover org and login to AION
-        self._auth = AionAuth(aion_url, ssl_verify=aion_verify,
+        self._auth = AionAuth(aion_url, ca_cert=aion_ca_cert,
                               debug_print=debug_print)
         self._auth.login(username, password)
 
