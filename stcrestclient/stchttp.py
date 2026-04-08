@@ -35,7 +35,7 @@ class StcHttp(object):
     """
 
     def __init__(self, server=None, port=None, api_version=1, use_https=False, ca_cert="",
-                 debug_print=False, timeout=None):
+                 debug_print=False, timeout=None, token=None):
         """Initialize the REST API wrapper object.
 
         If the port to connect to is not specified by the port argument, or by
@@ -79,6 +79,8 @@ class StcHttp(object):
 
         url = resthttp.RestHttp.url(proto, server, port, 'stcapi')
         rest = resthttp.RestHttp(url, debug_print=debug_print, timeout=timeout)
+        if token:
+            rest.add_header('Authorization', 'Bearer ' + token)
         try:
             rest.get_request('sessions')
         except (socket.error, resthttp.ConnectionError,
@@ -86,7 +88,6 @@ class StcHttp(object):
             raise RuntimeError('Cannot connect to STC server: %s:%s' %
                                (server, port))
 
-        rest.add_header('X-Spirent-API-Version', str(api_version))
         self._rest = rest
         self._sid = None
         self._api_ver = None
@@ -601,7 +602,7 @@ class StcHttp(object):
 
         if isinstance(data, (list, tuple, set)):
             return ' '.join((str(i) for i in data))
-        return data['message']
+        return data['message'] if 'message' in data else data
 
     def log(self, level, msg):
         """Write a diagnostic message to a log file or to standard output.

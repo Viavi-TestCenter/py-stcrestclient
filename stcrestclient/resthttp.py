@@ -40,6 +40,19 @@ class RestHttpError(Exception):
         return self.http_status
 
 
+class TokenExpiredError(RestHttpError):
+
+    """
+    Exception raised when stc-web returns 401 with code 4002 (AUTH_TOKEN_INVALID).
+
+    Catching RestHttpError also catches this; catch TokenExpiredError specifically
+    to trigger a token refresh and retry.
+
+    """
+
+    pass
+
+
 class ConnectionError(Exception):
 
     def __init__(self, message, code, detail=None):
@@ -447,6 +460,8 @@ class RestHttp(object):
                 else:
                     detail = 'unknown error: ' + str(data)
 
+            if rsp.status_code == 401 and code == 4002:
+                raise TokenExpiredError(rsp.status_code, rsp.reason, detail, code)
             raise RestHttpError(rsp.status_code, rsp.reason, detail, code)
 
         return rsp.status_code, data

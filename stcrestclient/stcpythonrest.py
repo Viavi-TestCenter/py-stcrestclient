@@ -320,13 +320,13 @@ class StcPythonRest(object):
             example="stc.delete(stream1)"),
 
         connect=dict(
-            desc=("connect: -Establishes a connection with a Spirent "
+            desc=("connect: -Establishes a connection with a "
                   "TestCenter chassis"),
             usage="stc.connect(hostnameOrIPaddress, ...)",
             example="stc.connect(mychassis1)"
             ),
         disconnect=dict(
-            desc=("disconnect: -Removes a connection with a Spirent "
+            desc=("disconnect: -Removes a connection with a "
                   "TestCenter chassis"),
             usage="stc.disconnect(hostnameOrIPaddress, ...)",
             example="stc.disconnect(mychassis1)"
@@ -342,7 +342,7 @@ class StcPythonRest(object):
             example='stc.release("//#{mychassis1}/1/1", "//#{mychassis1}/1/2")'
             ),
         apply=dict(
-            desc=("apply: -Applies a test configuration to the Spirent "
+            desc=("apply: -Applies a test configuration to the "
                   "TestCenter firmware"),
             usage="stc.apply()",
             example="stc.apply()"

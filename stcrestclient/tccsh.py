@@ -1,5 +1,5 @@
 """
-Spirent TestCenter Command Shell
+TestCenter Command Shell
 
 Command shell that provides STC Automation API functionality using an
 interactive command line interface, or command file.  This program accesses a
@@ -40,7 +40,7 @@ if sys.hexversion < 0x03000000:
 
 class TestCenterCommandShell(cmd.Cmd):
 
-    intro = 'Welcome to Spirent TestCenter Command Shell (tccsh)'
+    intro = 'Welcome to TestCenter Command Shell (tccsh)'
     _stc = None
     _sessions = []
     _server = None
@@ -884,7 +884,6 @@ class TestCenterCommandShell(cmd.Cmd):
 
         List examples:
             stc_help list commands wait*
-            stc_help list commands spirent.methodology.*
 
         """
         help_args = None
