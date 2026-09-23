@@ -1,0 +1,5 @@
+include LICENSE
+include QUICKSTART.md API_REFERENCE.md GETTING_STARTED.md QUICKGUIDE.md TESTING.md CHANGELOG.md .env.example
+recursive-include examples *.py
+include tests/conftest.py tests/fixtures.py
+recursive-include tests/data *.json

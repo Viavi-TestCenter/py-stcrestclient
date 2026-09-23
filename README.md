@@ -59,7 +59,6 @@ All code works with Python2.7 and Python3.x.
    > echo | openssl s_client -connect stcserver.somewhere.com:443 2>/dev/null | openssl x509 > server_cert.pem
    > ```
 
-
 - Install [client adapter](https://github.com/Viavi-TestCenter/py-stcrestclient#automation-client-rest-api-adapter) for Python automation scripts to use ReST API, without any code change:
 
    ```
@@ -103,6 +102,22 @@ The stcrestclient package is installed from source using distutils in the usual 
     sudo python setup.py install
     
 You can also clone the [repository](https://github.com/Viavi-TestCenter/py-stcrestclient) from GitHub.  Instructions for this not included here.
+
+### TestCenter IQ support (tciqrestclient)
+
+This repository also contains `tciqrestclient` (published to PyPI as `tciq`
+through version `0.1.1`, then renamed -- see `HANDOVER.md` for the full
+story), a separate, standalone Python client for TestCenter IQ's
+`orion-res` results service (discovery, named views, live/snapshot
+queries, database metadata, report generation) -- see
+[`tciqclient/README.md`](tciqclient/README.md) and
+[`tciqclient/QUICKGUIDE.md`](tciqclient/QUICKGUIDE.md) for full documentation.
+It has no dependency on `stcrestclient` and can be installed on its own:
+
+    pip install tciqrestclient
+
+An `iq` extras group is also declared on this package (`pip install
+stcrestclient[iq]`) for installing both together.
 
 ## Using the stchttp module
 
@@ -190,12 +205,12 @@ For example usage, look in the [examples](https://github.com/Viavi-TestCenter/py
 | `aion_url` | `AION_URL` | Base URL of the AION platform, e.g. `https://aion.example.com`. |
 | `username` | `AION_USERNAME` | AION user email / username. |
 | `password` | `AION_PASSWORD` | AION user password. |
-| `node_name` | — | AION node name hosting the target product instance, e.g. `10.109.120.117`. Use together with `ui_port` to uniquely identify an instance when multiple nodes or instances are present. |
-| `ui_port` | — | UI port of the target product instance. Use together with `node_name` to uniquely identify an instance when multiple instances are running on the same node. The UI port is the port number visible in AION's Product Manager web page (e.g. `64006`). Omit when only one instance is present. |
-| `product_ca_cert` | — | Path to CA certificate file used to verify the stcapi HTTPS connection, e.g. `/path/to/product_ca_cert.pem`. Required when the stcapi endpoint uses HTTPS. |
-| `aion_ca_cert` | — | Path to CA certificate file used to verify the AION platform HTTPS connection, e.g. `'/path/to/aion_ca_cert.pem'`. Required when the AION platform uses HTTPS. |
-| `debug_print` | — | Enable debug output. Defaults to `False`. |
-| `timeout` | — | HTTP request timeout in seconds. Defaults to `None` (no timeout). |
+| `node_name` | ï¿½ | AION node name hosting the target product instance, e.g. `10.109.120.117`. Use together with `ui_port` to uniquely identify an instance when multiple nodes or instances are present. |
+| `ui_port` | ï¿½ | UI port of the target product instance. Use together with `node_name` to uniquely identify an instance when multiple instances are running on the same node. The UI port is the port number visible in AION's Product Manager web page (e.g. `64006`). Omit when only one instance is present. |
+| `product_ca_cert` | ï¿½ | Path to CA certificate file used to verify the stcapi HTTPS connection, e.g. `/path/to/product_ca_cert.pem`. Required when the stcapi endpoint uses HTTPS. |
+| `aion_ca_cert` | ï¿½ | Path to CA certificate file used to verify the AION platform HTTPS connection, e.g. `'/path/to/aion_ca_cert.pem'`. Required when the AION platform uses HTTPS. |
+| `debug_print` | ï¿½ | Enable debug output. Defaults to `False`. |
+| `timeout` | ï¿½ | HTTP request timeout in seconds. Defaults to `None` (no timeout). |
 
 `aion_url`, `username`, and `password` can be supplied as arguments or via their corresponding environment variables.  The argument takes precedence when both are set.  A `RuntimeError` is raised at construction time if any of the three is missing from both sources.
 

@@ -1,7 +1,14 @@
 *~
 *.pyc
 *.pyo
-*.log
 dist/
-*.egg-info/
 build/
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# tciqclient: real credentials, huge captured API dumps, debug logs -- never commit
+tciqclient/.env
+tciqclient/views.json
+tciqclient/*.log
