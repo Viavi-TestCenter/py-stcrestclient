@@ -12,7 +12,7 @@ from tciqrestclient import IQClient
 def main():
     iq = IQClient(timeout=120)
 
-    owner = "rakshit.bharti@viavisolutions.com"
+    owner = "test-owner"
     tests = iq.list_tests(owner=owner)
 
     print("Tests owned by %s:" % owner)

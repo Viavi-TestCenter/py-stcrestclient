@@ -1,26 +1,3 @@
-"""Fetch results from one specific view of one specific database --
-exercising every generic query() feature a table view can support:
-column discovery, filters=, sort=, group_by=, time_range=,
-snapshot_name=, raw_result=, and picking the right table by data_type=.
-
-Nothing about which columns to use is hardcoded to "Detailed Stream
-Results" below -- they're discovered from the view's own
-list_view_columns() and cross-referenced against the database's own
-list_fields() for type info (a view column's raw attribute path, e.g.
-"rx_stream_stats.frame_count", ends in the same field name,
-"frame_count", that list_fields() reports a type for -- see
-_field_types_by_raw_name()). That's what makes this work against any
-single_level_table/paged_single_level_table view, not just this one.
-
-Not every view has a column of the type each feature needs -- e.g.
-time_range= needs a timestamp-typed column, which a per-stream results
-table (like this one) usually doesn't have. Each section below says so
-and skips instead of guessing or crashing. See query_modifiers.py for a
-more compact single-view walkthrough of filters=/sort=/group_by=/
-time_range= with hardcoded column names, and run_view_query.py for
-options this file doesn't repeat (limit=/timeout=, the definition=
-fallback, auto_repair=/last_dropped_columns in more depth).
-"""
 from tciqrestclient import IQClient
 from tciqrestclient.exceptions import IQRequestError, IQQueryError
 

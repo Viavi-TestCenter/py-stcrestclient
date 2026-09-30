@@ -37,6 +37,7 @@ from tciqrestclient import IQClient, IQError, IQViewError   # all public names a
    - [`list_views`](#list_viewstimeoutnone)
    - [`get_view`](#get_viewview_id-timeoutnone)
    - [`find_view`](#find_viewname-timeoutnone)
+   - [`list_profiles`](#list_profilesview_idnone-detailnone-timeoutnone)
    - [`list_view_columns`](#list_view_columnsname-test_livenone-active_onlyfalse-timeoutnone-data_typenone-table_indexnone)
    - [`save_view`](#save_viewname-detailsnone-description-definitionnone)
    - [`delete_view`](#delete_viewview_idnone-namenone-timeoutnone)
@@ -81,15 +82,15 @@ discovery is attempted and fails.
 | `port` | `int`/`str` | `None` | Explicit `orion-res` port. Falls back to `TCIQ_PORT`. |
 | `install_dir` | `str` | `None` | STC install directory to discover the address from (`stcbll.ini` for a remote IQ deployment, `orion-res.yaml` for a local one). Falls back to `TCIQ_INSTALL_DIR`. |
 | `database_id` | `str` | `None` | Default test id for `query()`/`get_test()`/etc. calls made on this client. Changeable later with [`use_test()`](#use_testdatabase_id), or overridden per call. Falls back to `TCIQ_DATABASE_ID`. |
-| `timeout` | `float` | `10.0` | HTTP request timeout, in seconds, for every call this client makes (override per-call with most methods' own `timeout=`). Falls back to `TCIQ_TIMEOUT`. |
+| `timeout` | `float` | `120.0` | HTTP request timeout, in seconds, for every call this client makes (override per-call with most methods' own `timeout=`). Falls back to `TCIQ_TIMEOUT`. |
 | `use_https` | `bool` | `False` | Use `https://` when composing a base URL from `host`/`port` or a discovered address. |
 | `load_env` | `bool` | `True` | Load a `.env` file before reading environment variables. |
 | `env_file` | `str` | `None` | Explicit `.env` file path. `None` searches upward from the current directory (`python-dotenv`'s default). |
 | `session` | `requests.Session` | `None` | Optional session to use instead of creating one — mainly for tests. |
 | `debug` | `bool` | `None` | Print every request's method/URL/JSON body before sending, and its status/timing after. `None` falls back to `TCIQ_DEBUG`. |
-| `aion_url` | `str` | `None` | AION platform base URL, e.g. `"https://aion.example.com"`. Given together with `aion_username`/`aion_password`, `orion-res`'s address is discovered via AION's inventory API instead. Falls back to `TCIQ_AION_URL`. |
-| `aion_username` | `str` | `None` | AION login email. Falls back to `TCIQ_AION_USERNAME`. |
-| `aion_password` | `str` | `None` | AION login password. Falls back to `TCIQ_AION_PASSWORD`. |
+| `aion_url` | `str` | `None` | AION platform base URL, e.g. `"https://aion.example.com"`. Given together with `aion_username`/`aion_password`, `orion-res`'s address is discovered via AION's inventory API instead. Falls back to `TCIQ_AION_URL`, then to the bare `AION_URL` env var (`stcrestclient`'s own `AionStcHttp` convention, no `TCIQ_` prefix) if that's unset too. |
+| `aion_username` | `str` | `None` | AION login email. Falls back to `TCIQ_AION_USERNAME`, then to the bare `AION_USERNAME` env var. |
+| `aion_password` | `str` | `None` | AION login password. Falls back to `TCIQ_AION_PASSWORD`, then to the bare `AION_PASSWORD` env var. |
 | `aion_node_name` | `str` | `None` | Optional AION node name to restrict instance discovery. Falls back to `TCIQ_AION_NODE_NAME`. |
 | `aion_port_name` | `str` | `"iq"` | Name of the `orion-res` port entry in AION's product-instances list (confirmed against a real AION org 2026-09-08). Falls back to `TCIQ_AION_PORT_NAME`. |
 | `aion_ca_cert` | `str` | `None` | Optional CA certificate path for AION HTTPS. Falls back to `TCIQ_AION_CA_CERT`. |
@@ -114,7 +115,7 @@ from tciqrestclient import IQClient
 
 iq = IQClient()                                        # everything from .env
 iq = IQClient(base_url="http://127.0.0.1:9200")        # explicit, skips discovery
-iq = IQClient(install_dir=r"C:\Program Files\Spirent Communications\Spirent TestCenter")
+iq = IQClient(install_dir=r"C:\Program Files\Viavi Solutouns\TestCenter")
 iq = IQClient(aion_url="https://aion.example.com",
               aion_username="jdoe", aion_password="secret")
 ```
@@ -136,8 +137,9 @@ nothing was dropped, if the last call didn't use `name=`, or if
 `auto_repair=False`. For a view whose query is genuinely one request
 (most view types), this is a flat `list[str]` of the raw projection
 fragments that were stripped. For a "multi"-kind view type (`histogram`,
-`boxplot` — one query per provider/statistic), this is instead
-`dict[str, list[str]]`, keyed the same way the returned rows are.
+`boxplot` — one query per provider/statistic; `chart` — one per real
+numeric series), this is instead `dict[str, list[str]]`, keyed the same
+way the returned rows are.
 
 ```python
 rows = iq.query("Detailed Stream Results", database_id="abc123")
@@ -354,6 +356,18 @@ Find a view by its display name.
 
 **Returns:** `dict` (the full view record) or `None` if no view has that name. Matched client-side, by scanning `list_views()`.
 
+### `list_profiles(view_id=None, detail=None, timeout=None)`
+
+List result profiles — a saved collection of views plus their dashboard layout (the GUI's results "template"), not to be confused with a single view. CONFIRMED against a real server 2026-09-30 (112 real profiles) — see `tciqrestclient/profiles.py`'s module docstring for the full shape notes.
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `view_id` | `str` | `None` | Restrict to profiles that reference this view id (in their `views` list). Matched server-side — confirmed real query param. |
+| `detail` | `str` | `None` | `"full"` (the server's own default when omitted) or `"summary"` (excludes each profile's `details.layouts`; every other field, including `views`, is unchanged — confirmed real, ~20% smaller response). |
+| `timeout` | `float` | `None` | Per-call HTTP timeout override. |
+
+**Returns:** `list[dict]` — one profile record per profile (`id`, `serial`, `name`, `description`, `metadata`, `details`, `views`). Each entry in `views` only carries that view's `id` — use [`get_view()`](#get_viewview_id-timeoutnone) with it to fetch the view's real definition.
+
 ### `list_view_columns(name, test_live=None, active_only=False, timeout=None, data_type=None, table_index=None)`
 
 List every column a view's table can reference — including each one's
@@ -439,10 +453,10 @@ widget type. Exactly one of `name` or `definition` must be given.
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `name` | `str` | `None` | Name of an existing view to build a query from (looked up via `find_view()`). |
-| `test_live` | `bool`/`str` | `None` | `True` (or the string `"live"`, case-insensitively) for in-progress-test data. `False`/`None` (or `"eot"`/`"snapshot"`) for completed-test snapshot data — **the default**. Ignored with `definition=`. |
+| `test_live` | `bool`/`str` | `None` | `True` (or the string `"live"`, case-insensitively) for in-progress-test data. `False`/`None` (or `"eot"`/`"snapshot"`) for completed-test snapshot data — **the default**. Ignored with `definition=`. Raises `IQViewError` for `"histogram"`/`"x_y_chart"` — no live-mode query template has been found in either's own real templates; only snapshot/eot data is confirmed working. |
 | `database_id` | `str` | `None` | Which test's results to query. Defaults to the database set via `use_test()`/`TCIQ_DATABASE_ID`. Always wins over `user=` if both are given. |
 | `user` | `str` | `None` | Username/email to resolve `database_id` from automatically (matches `metadata["test.owner"]`) instead of passing `database_id=` yourself. **Only resolved for `test_live=True`/`"live"`** — finds the one test owned by `user` whose `metadata["test.running"]` is true. For snapshot data, `user=` alone raises (a user can have many completed tests with no signal for which one is meant) — pass `database_id=` explicitly instead. |
-| `snapshot_name` | `str` | `None` | With `name=` only: restrict to one specific named snapshot (mirrors the GUI's snapshot selector). Only valid against snapshot (`eot`) data. |
+| `snapshot_name` | `str` | `None` | With `name=` only: restrict to one specific named snapshot (mirrors the GUI's snapshot selector). Only valid against snapshot (`eot`) data. Silently has no effect for a `"histogram"` provider that has no snapshot filter of its own (not every one does — confirmed against a real server). Raises `IQViewError` for `"chart"` — no snapshot filter has been found in a real chart view's own templates at all. |
 | `filters` | `list` | `None` | See [`merge_modifiers()`](#merge_modifiersdefinition-filtersnone-sortnone-group_bynone-time_rangenone-limitnone-resolve_fieldnone). With `name=`, a field may be given as its GUI display name, raw attribute path, unambiguous bare column name, or internal alias. |
 | `sort` | `str`/`list`/`tuple` | `None` | See `merge_modifiers()`. Same field-name resolution as `filters=` with `name=`. |
 | `group_by` | `str`/`list` | `None` | See `merge_modifiers()`. Same field-name resolution as `filters=` with `name=`. |
@@ -454,16 +468,17 @@ widget type. Exactly one of `name` or `definition` must be given.
 | `auto_repair` | `bool` | `True` | With `name=` only: automatically strip a column and retry (up to 100 times) if the server 400s with `VALIDATION_FAILED: unknown attribute name: ...` — a real, confirmed occurrence when a view's template references a column a specific database's schema doesn't have. Check [`last_dropped_columns`](#last_dropped_columns) afterward. `False` lets the original `IQRequestError` propagate instead. |
 | `definition` | `dict`/`str` | `None` | Advanced escape hatch: a raw query definition (a `dict`, or a JSON string — parsed automatically) to run directly instead of building one from a view. |
 | `data_type` | `str` | `None` | Advanced/legacy alternative to `test_live=` — an exact `data_type` string (e.g. `"eot"`). Case-insensitive. Takes precedence over `test_live=` if both are given. Ignored with `definition=`. |
-| `table_index` | `int` | `None` | Advanced/legacy — pick a view's table by raw position, bypassing `test_live=`/`data_type=` entirely. Almost never needed. Ignored with `definition=`. |
+| `table_index` | `int` | `None` | Advanced/legacy — pick a view's table by raw position, bypassing `test_live=`/`data_type=` entirely. Almost never needed. Ignored with `definition=`. Raises `IQViewError` for `"chart"`/`"histogram"`/`"x_y_chart"` — none of them have a `details.user_data.tables` list to index into at all. |
 
 **Returns:**
 - For a view type that's genuinely one query (the common table view
-  types, `x_y_chart`, `pie_chart` — or always, with `definition=`): a
-  `list[dict]` of row dicts, or the raw result object if
-  `raw_result=True`.
-- For a view type that isn't (`histogram`: one query per provider;
-  `boxplot`: one per statistic): a `dict[str, list[dict]]` — one entry
-  per underlying query.
+  types, `pie_chart` — or always, with `definition=`): a `list[dict]`
+  of row dicts, or the raw result object if `raw_result=True`.
+- For a view type that isn't (`x_y_chart`/`histogram`: one query per
+  provider; `boxplot`: one per statistic; `chart`: one per real numeric
+  series, keyed by its internal name): a `dict[str, list[dict]]` — one
+  entry per underlying query. `table_index=`/`snapshot_name=` both raise
+  `IQViewError` for `chart`.
 
 **Raises:**
 - `IQQueryError` — neither/both of `name=`/`definition=` given; `definition=` is an invalid JSON string; `test_live=` is an unrecognized string; no `database_id` available and no default set; `user=` couldn't resolve a database (no/multiple running tests, or used with snapshot data).

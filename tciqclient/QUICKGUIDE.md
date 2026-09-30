@@ -13,13 +13,13 @@ Every example below is real, working `tciqrestclient` code — for a runnable,
 end-to-end version of most of them, see [`examples/`](examples/) (listed
 in full in [§17](#17-example-scripts)).
 
-> **Known gap:** `x_y_chart` and `histogram` views are confirmed broken
-> against a real server — `query(name=...)` currently raises
-> `IQViewError` for both (`pie_chart`/`boxplot` are unconfirmed either
-> way). Everything in this guide about `query()` is written against, and
-> confirmed working for, the common "table" view types
-> (`single_level_table`/`paged_single_level_table`) and `definition=`
-> calls. See `HANDOVER.md` §9 ("Widget query builders") for detail.
+> **Known gap:** `pie_chart`/`boxplot` views are unconfirmed against a
+> real server (no real `pie_chart` view has ever been found anywhere to
+> even test against). Everything in this guide about `query()` is
+> written against, and confirmed working for, the common "table" view
+> types (`single_level_table`/`paged_single_level_table`), `x_y_chart`,
+> `chart`, `histogram`, and `definition=` calls. See `HANDOVER.md` §9
+> ("Widget query builders") for detail.
 
 ## Table of Contents
 
@@ -82,14 +82,14 @@ Pick exactly one discovery method:
 |---|---|---|
 | **Direct URL** | `TCIQ_BASE_URL=http://127.0.0.1:9200` | You already know the address. Simplest, fastest, no discovery step. |
 | **Direct host/port** | `TCIQ_HOST=127.0.0.1`, `TCIQ_PORT=9200` | Same as above, split into two parts. |
-| **STC install dir** | `TCIQ_INSTALL_DIR=C:\Program Files\Spirent Communications\Spirent TestCenter` | Running on/near a Spirent TestCenter install — reads `orion-res.yaml` (local IQ) or `stcbll.ini` (remote IQ) to find the address for you. |
-| **AION platform** | `TCIQ_AION_URL`, `TCIQ_AION_USERNAME`, `TCIQ_AION_PASSWORD` | orion-res is fronted by an AION lab — `tciqrestclient` logs into AION and looks up orion-res's real address + bearer token from AION's inventory. |
+| **STC install dir** | `TCIQ_INSTALL_DIR=C:\Program Files\Viavi Solutions\TestCenter` | Running on/near a TestCenter install — reads `orion-res.yaml` (local IQ) or `stcbll.ini` (remote IQ) to find the address for you. |
+| **AION platform** | `TCIQ_AION_URL`, `TCIQ_AION_USERNAME`, `TCIQ_AION_PASSWORD` | orion-res is fronted by an AION lab — `tciqrestclient` logs into AION and looks up orion-res's real address + bearer token from AION's inventory. Each of these three falls back to its bare (no `TCIQ_` prefix) counterpart — `AION_URL`/`AION_USERNAME`/`AION_PASSWORD`, `stcrestclient`'s own `AionStcHttp` convention — if unset, so one AION login can serve both packages. |
 
 Other useful settings:
 
 ```bash
 TCIQ_DATABASE_ID=          # default test id -- or just call use_test() at runtime
-TCIQ_TIMEOUT=10            # HTTP timeout in seconds (default 10)
+TCIQ_TIMEOUT=120           # HTTP timeout in seconds (default 120)
 TCIQ_DEBUG=                # 1/true/yes to log every request before sending
 ```
 
@@ -187,12 +187,15 @@ for row in rows[:5]:
 
 `rows` is a plain `list[dict]` — one dict per row, keyed by column name —
 for the common case (table views, `x_y_chart`, `pie_chart`, and every
-`definition=` call). Two view types return one query's worth of rows
+`definition=` call). Three view types return one query's worth of rows
 *per sub-query* instead, as a `{name: list[dict]}` dict: `histogram`
-(one entry per query provider) and `boxplot` (one entry per statistic).
-Check which you're dealing with by printing `type(rows)`, or just look
-at the view in the IQ GUI — table/line-chart/pie views give you a flat
-list; histograms and box plots give you a dict.
+(one entry per query provider), `boxplot` (one entry per statistic), and
+`chart` (one entry per real numeric series, e.g. "Generator Sig Rate"/
+"Rx Sig Rate" on "Port Frame Rate Chart" — keyed by its internal name,
+not its GUI display label). Check which you're dealing with by printing
+`type(rows)`, or just look at the view in the IQ GUI — table/line-chart/
+pie views give you a flat list; histograms, box plots, and time-series
+charts give you a dict.
 
 By default `query()` caps results at 1000 rows (`DEFAULT_QUERY_LIMIT`) as
 a safety net — pass `limit=` to change that, or `limit=None` to leave the
@@ -402,6 +405,19 @@ views = iq.list_views(timeout=60)
 See [`examples/manage_views.py`](examples/manage_views.py) for the full
 save → reuse → delete cycle end-to-end, with cleanup guaranteed even if
 a step in between fails.
+
+A *profile* is a different, larger thing than a view — a saved
+collection of views plus their dashboard layout (the GUI's results
+"template"):
+
+```python
+profiles = iq.list_profiles()                 # every profile on the server
+profiles = iq.list_profiles(detail="summary") # smaller response -- omits each profile's layout
+profiles = iq.list_profiles(view_id="abc123") # only profiles that reference this view
+```
+
+Each profile's `views` list only carries each referenced view's `id` —
+pass one to `get_view()` (above) for its full definition.
 
 ---
 
@@ -623,10 +639,11 @@ each as needed):
 | `modify_query_definition.py` | Editing a query definition's raw dict directly (OR-combined filters, removing a projection, overwriting `orders=`) — for when `filters=`/`sort=`/`group_by=` aren't expressive enough |
 | `aion_end_to_end.py` | Connecting via AION, then the same query/view coverage as the local-mode examples, against whatever the AION deployment actually has |
 | `bulk_cleanup_databases.py` | `delete_databases_over_size()`/`delete_databases_older_than()` — bulk cleanup, dry-run by default |
-| `run_xy_chart_query.py` | An `x_y_chart` view — **confirmed broken against a real server, see the callout at the top of this guide** |
-| `run_pie_chart_query.py` | A `pie_chart` view — unconfirmed against a real server |
-| `run_histogram_query.py` | A `histogram` view (the `{name: rows}` return shape) — **confirmed broken against a real server, see the callout at the top of this guide** |
+| `run_xy_chart_query.py` | An `x_y_chart` view (the `{name: rows}` return shape) — confirmed working against a real server |
+| `run_pie_chart_query.py` | A `pie_chart` view — unconfirmed against a real server (no real one has ever been found to test against, either) |
+| `run_histogram_query.py` | A `histogram` view (the `{name: rows}` return shape) — confirmed working against a real server |
 | `run_boxplot_query.py` | A `boxplot` view — unconfirmed against a real server |
+| `run_chart_query.py` | A `chart` (live/time-series line chart) view (the `{name: rows}` return shape) — confirmed working against a real server |
 | `manage_views.py` | `save_view()`/`list_view_columns()`/`query(name=...)`/`delete_view()` — the full custom-view lifecycle |
 | `inspect_database_schema.py` | `list_table_names()`, `list_fields()`, `get_database_schema()` |
 | `multi_database_query.py` | Looping `query(database_id=...)` across several tests |
@@ -671,6 +688,7 @@ iq.list_view_columns(name, test_live=None, active_only=False,
                       timeout=None, data_type=None, table_index=None)
 iq.save_view(name, details=None, description="", definition=None)
 iq.delete_view(view_id=None, name=None, timeout=None)
+iq.list_profiles(view_id=None, detail=None, timeout=None)
 
 # Query -- the one method for every view type
 iq.query(name=None, test_live=None, database_id=None, user=None,

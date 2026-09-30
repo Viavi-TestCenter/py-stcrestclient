@@ -11,6 +11,7 @@
 """
 from . import config as config_mod
 from . import databases
+from . import profiles
 from . import query as query_mod
 from . import queries
 from . import reports
@@ -74,6 +75,30 @@ def _normalize_test_live(test_live):
     return bool(test_live)
 
 
+def _effective_limit(definition, limit, sort):
+    """query()'s limit= for one query/sub-query, adjusted for a real
+    server rule CONFIRMED 2026-09-24 across three independent cases
+    (chart's live-mode single_result queries; some real histogram
+    providers; a real x_y_chart's own filter_dropdown_query): a
+    definition whose outermost node has no `orders` at all 400s with
+    "pagination requires at least one order expression" the instant
+    ANY limit/pagination gets attached to it -- sort= or not (limit=
+    alone already adds `pagination` -- see query.merge_modifiers()).
+
+    Returns `limit` unchanged if the definition already has real
+    orders, or if `sort=` is also being passed (which adds real orders
+    of its own inside merge_modifiers(), making the original limit safe
+    again) -- otherwise None, leaving that definition's limit
+    untouched instead of attaching one it can't structurally support.
+    """
+    if sort:
+        return limit
+    _, outermost = query_mod._outermost_node(definition)
+    if outermost.get("orders"):
+        return limit
+    return None
+
+
 class IQClient(object):
     """Python-native client for TestCenter IQ's orion-res results
     service.
@@ -116,10 +141,14 @@ class IQClient(object):
                            'https://aion.example.com'. When given along with
                            aion_username/aion_password, orion-res's address is
                            discovered via AION's inventory API. Falls back to
-                           TCIQ_AION_URL in the environment.
-        aion_username   -- AION login email. Falls back to TCIQ_AION_USERNAME.
+                           TCIQ_AION_URL in the environment, then to the bare
+                           AION_URL env var (stcrestclient's own AionStcHttp
+                           convention, no TCIQ_ prefix) if that's unset too.
+        aion_username   -- AION login email. Falls back to TCIQ_AION_USERNAME,
+                           then to the bare AION_USERNAME env var.
         aion_password   -- AION login password. Falls back to
-                           TCIQ_AION_PASSWORD.
+                           TCIQ_AION_PASSWORD, then to the bare AION_PASSWORD
+                           env var.
         aion_node_name  -- Optional AION node name to restrict discovery.
                            Falls back to TCIQ_AION_NODE_NAME.
         aion_port_name  -- Name of the orion-res port entry in AION product-
@@ -379,6 +408,27 @@ class IQClient(object):
         return views.find_view_by_name(
             self._transport, name, timeout=timeout)
 
+    # -- profiles -------------------------------------------------------------
+
+    def list_profiles(self, view_id=None, detail=None, timeout=None):
+        """List all result profiles -- a saved collection of views plus
+        their dashboard layout (the GUI's results "template"), not to be
+        confused with a single view. See tciqrestclient.profiles module
+        docstring for the confirmed real shape.
+
+        Arguments:
+        view_id -- Optional view id to filter by -- only profiles that
+                  reference this view are returned (confirmed real
+                  server-side filter).
+        detail  -- 'full' (server default) or 'summary' (excludes each
+                  profile's details.layouts; everything else, including
+                  views, is unchanged).
+        timeout -- Override the client's default HTTP timeout for just
+                  this call.
+        """
+        return profiles.list_profiles(
+            self._transport, view_id=view_id, detail=detail, timeout=timeout)
+
     def list_view_columns(self, name, test_live=None, active_only=False,
                            timeout=None, data_type=None, table_index=None):
         """List a view's columns -- including each one's GUI display_name
@@ -476,7 +526,13 @@ class IQClient(object):
         tciqrestclient.view_query_builder) -- confirmed against real captures for
         table view_types, and also supported (but not yet real-capture-
         confirmed -- see tciqrestclient.view_query_builder's module docstring) for
-        x_y_chart/pie_chart/histogram/boxplot; any other view_type raises
+        x_y_chart/pie_chart/histogram/boxplot. "chart" (e.g. "Port Frame
+        Rate Chart") is ALSO supported -- CONFIRMED against a real
+        server 2026-09-24 -- via a genuinely different mechanism (see
+        view_query_builder's module docstring's "chart" section): it
+        runs one real query per distinct measurement first, to learn
+        this test's own real sampling rate, before its actual per-
+        series queries can even be built. Any other view_type raises
         IQViewError, since its result shape hasn't been checked. This is
         the *only* query method -- it looks at the view's own view_type
         internally rather than requiring a different call per widget
@@ -488,7 +544,10 @@ class IQClient(object):
         NOT necessarily byte-identical to how the GUI's own filter box
         would shape the same filter (see tciqrestclient.view_query_builder module
         docstring); if a filtered name= query behaves unexpectedly,
-        capture the GUI's own request with debug=True and compare.
+        capture the GUI's own request with debug=True and compare. Not
+        attempted at all for "chart" yet -- see table_index=/
+        snapshot_name= below, and its own field-name-resolution note
+        under filters=.
 
         Arguments:
         name       -- Name of an existing view to build a definition
@@ -536,7 +595,12 @@ class IQClient(object):
                       a snapshot filter at all even on their eot table
                       (x_y_chart). See
                       tciqrestclient.view_query_builder.build_query_definition()
-                      for its confirmation status.
+                      for its confirmation status. Raises IQViewError
+                      instead of being ignored for "chart" specifically
+                      -- no snapshot filter has been found in a real
+                      chart view's own query templates at all, so unlike
+                      x_y_chart there's no confirmed "safe to ignore"
+                      behavior to fall back to.
         filters    -- See tciqrestclient.query.merge_modifiers(). With name=, a
                       field can be given as its GUI display_name (e.g.
                       "Rx Count", case-insensitive), raw attribute path
@@ -551,6 +615,11 @@ class IQClient(object):
                       resolve display names against). For a "multi"-kind
                       view_type (see Return below), the same filters=
                       are applied to every one of its underlying queries.
+                      No field-name resolution is attempted for "chart"
+                      -- there's no confirmed column/field concept for
+                      its series to resolve a display_name/bare name
+                      against yet, so a filter has to reference an
+                      already-qualified raw expression instead.
         sort       -- See tciqrestclient.query.merge_modifiers(). Same field-name
                       resolution as filters= with name=.
         group_by   -- See tciqrestclient.query.merge_modifiers(). Same field-name
@@ -626,16 +695,21 @@ class IQClient(object):
                       tciqrestclient.views.get_view_definition()). Almost never
                       needed -- test_live= (or data_type=) already
                       selects the right table by name for every view
-                      seen in practice. Ignored with definition=.
+                      seen in practice. Ignored with definition=. Raises
+                      IQViewError if given for "chart" -- it has no
+                      details.user_data.tables list to index into at all.
 
         Return:
         For a view_type that's genuinely one query (table, x_y_chart,
         pie_chart -- or always, with definition=): a list of row dicts
         (columns zipped with each row), or the raw result object if
         raw_result=True. For a view_type that isn't (histogram: one
-        query per provider; boxplot: one per statistic): a dict of
-        {<name>: <rows or raw result>}, one entry per underlying query --
-        see tciqrestclient.view_query_builder.build_query_definition()'s docstring
+        query per provider; boxplot: one per statistic; "chart": one per
+        real numeric series, keyed by its internal name e.g.
+        "tx_port_basic_stats.generator_frame_rate", not its GUI
+        display_name): a dict of {<name>: <rows or raw result>}, one
+        entry per underlying query -- see
+        tciqrestclient.view_query_builder.build_query_definition()'s docstring
         for which view_types fall into which bucket. This is the one
         place the return shape depends on what you queried, not on which
         method you called (see name= above).
@@ -657,31 +731,6 @@ class IQClient(object):
         if normalized_live is not None and data_type is None:
             data_type = "live" if normalized_live else "eot"
 
-        resolve_field = None
-        if name:
-            # Same timeout= applies to the /views lookup as to the query
-            # itself below -- listing views can be slow/large on a
-            # server with many of them (see list_views()/find_view()).
-            view = views.find_view_by_name(
-                self._transport, name, timeout=timeout)
-            if not view:
-                raise IQViewError("no view named %r" % (name,))
-            built = views.get_view_definition(
-                view, table_index=table_index, data_type=data_type,
-                snapshot_name=snapshot_name, transport=self._transport,
-                timeout=timeout)
-            # Lets filters=/sort=/group_by= use a column's GUI
-            # display_name (e.g. "Rx Count"), raw attribute path (e.g.
-            # "rx_stream_stats.frame_count"), or unambiguous bare column
-            # name (e.g. "frame_count"), not just its internal alias
-            # (e.g. "rx_stream_stats_frame_count") -- see
-            # list_view_columns() to see what's available for a view.
-            resolve_field = views.build_field_resolver(
-                view, table_index=table_index, data_type=data_type,
-                transport=self._transport, timeout=timeout)
-        else:
-            built = {"kind": "single", "definition": definition}
-
         if database_id:
             db_id = database_id
         elif user:
@@ -691,13 +740,54 @@ class IQClient(object):
             db_id = self._require_database_id()
         can_auto_repair = bool(name and auto_repair)
 
+        resolve_field = None
+        if name:
+            # Same timeout= applies to the /views lookup as to the query
+            # itself below -- listing views can be slow/large on a
+            # server with many of them (see list_views()/find_view()).
+            view = views.find_view_by_name(
+                self._transport, name, timeout=timeout)
+            if not view:
+                raise IQViewError("no view named %r" % (name,))
+            view_type = (view.get("details") or {}).get("view_type")
+            if view_type == view_query_builder.CHART_VIEW_TYPE:
+                built = self._build_chart_definitions(
+                    view, data_type, snapshot_name, table_index, db_id,
+                    mode, timeout)
+            elif view_type == view_query_builder.HISTOGRAM_VIEW_TYPE:
+                built = self._build_histogram_definitions(
+                    view, data_type, table_index, snapshot_name)
+            elif view_type == view_query_builder.XY_CHART_VIEW_TYPE:
+                built = self._build_xy_chart_definitions(
+                    view, data_type, table_index, snapshot_name)
+            else:
+                built = views.get_view_definition(
+                    view, table_index=table_index, data_type=data_type,
+                    snapshot_name=snapshot_name, transport=self._transport,
+                    timeout=timeout)
+                # Lets filters=/sort=/group_by= use a column's GUI
+                # display_name (e.g. "Rx Count"), raw attribute path
+                # (e.g. "rx_stream_stats.frame_count"), or unambiguous
+                # bare column name (e.g. "frame_count"), not just its
+                # internal alias (e.g. "rx_stream_stats_frame_count") --
+                # see list_view_columns() to see what's available for a
+                # view. Not attempted for "chart" above -- there's no
+                # confirmed column/field concept for its series to
+                # resolve against yet.
+                resolve_field = views.build_field_resolver(
+                    view, table_index=table_index, data_type=data_type,
+                    transport=self._transport, timeout=timeout)
+        else:
+            built = {"kind": "single", "definition": definition}
+
         if built["kind"] == "multi":
             rows = {}
             self.last_dropped_columns = {}
             for sub_name, sub_definition in built["definitions"].items():
                 final_definition = query_mod.merge_modifiers(
                     sub_definition, filters=filters, sort=sort,
-                    group_by=group_by, time_range=time_range, limit=limit,
+                    group_by=group_by, time_range=time_range,
+                    limit=_effective_limit(sub_definition, limit, sort),
                     resolve_field=resolve_field)
                 # Recorded into self.last_dropped_columns[sub_name] as we
                 # go (not just on success) -- so a sub-query that
@@ -716,7 +806,8 @@ class IQClient(object):
 
         final_definition = query_mod.merge_modifiers(
             built["definition"], filters=filters, sort=sort,
-            group_by=group_by, time_range=time_range, limit=limit,
+            group_by=group_by, time_range=time_range,
+            limit=_effective_limit(built["definition"], limit, sort),
             resolve_field=resolve_field)
         self.last_dropped_columns = []
         result = self._run_with_auto_repair(
@@ -797,6 +888,139 @@ class IQClient(object):
                         "one field of it (columns dropped: %s)" %
                         ", ".join(dropped_columns)) from e
         return response.get("result") or {}
+
+    def _build_chart_definitions(self, view, data_type, snapshot_name,
+                                  table_index, db_id, mode, timeout):
+        """query(name=...)'s "chart" view_type path -- see
+        view_query_builder's module docstring ("chart" section) and
+        build_chart_duration_probe_definitions()/
+        build_chart_query_definitions()'s own docstrings for the full
+        two-phase real-query flow this runs. Unlike every other
+        view_type, phase 1 needs one real query per distinct
+        sampling_duration_provider BEFORE the view's own real per-series
+        queries can even be built -- so this method, not
+        view_query_builder (which stays a pure, non-I/O module), is what
+        actually executes those probe queries, via
+        self._run_with_auto_repair() the same way the rest of query()
+        runs everything else. auto_repair is deliberately off for these
+        probes -- they're fixed internal templates, not something a
+        caller can inspect/wants repaired; a genuine schema mismatch
+        (e.g. this test never used the measurement a series needs) is
+        exactly the same real "unknown dimension" 400 auto_repair
+        handles for ordinary queries, and should surface as-is here.
+
+        Return:
+        {"kind": "multi", "definitions": {...}} -- same shape
+        views.get_view_definition() returns for every other multi-query
+        view_type, so the rest of query() (the multi-dispatch loop)
+        handles it identically, with no further special-casing.
+
+        Raises:
+        IQViewError -- table_index=/snapshot_name= were given (neither
+                      is supported for this view_type -- see above), or
+                      anything view_query_builder's own chart-building
+                      functions raise (missing/mismatched series or
+                      provider references).
+        IQRequestError -- a probe query itself failed against the real
+                      server (e.g. this database's schema genuinely
+                      lacks the measurement a series needs).
+        """
+        if table_index is not None:
+            raise IQViewError(
+                "table_index= is not supported for view_type %r -- chart "
+                "views have no details.user_data.tables list to index "
+                "into" % (view_query_builder.CHART_VIEW_TYPE,))
+        if snapshot_name is not None:
+            raise IQViewError(
+                "snapshot_name= is not supported for view_type %r -- no "
+                "snapshot filter has been found in a real chart view's "
+                "own query templates" % (view_query_builder.CHART_VIEW_TYPE,))
+
+        is_live = (data_type == "live")
+        probes = view_query_builder.build_chart_duration_probe_definitions(
+            view, is_live)
+
+        duration_by_provider = {}
+        for provider_name, probe_definition in probes.items():
+            result = self._run_with_auto_repair(
+                probe_definition, db_id, mode, timeout, False, [])
+            rows = query_mod.rows_to_dicts(result)
+            if not rows:
+                raise IQViewError(
+                    "sampling_duration_provider %r returned no rows -- "
+                    "this test may have no data for this series yet" %
+                    (provider_name,))
+            duration_by_provider[provider_name] = max(
+                float(r["sampling_duration"]) for r in rows)
+
+        return view_query_builder.build_chart_query_definitions(
+            view, is_live, duration_by_provider)
+
+    def _build_histogram_definitions(self, view, data_type, table_index,
+                                      snapshot_name):
+        """query(name=...)'s "histogram" view_type path -- see
+        view_query_builder.build_histogram_query_definitions()'s own
+        docstring for the real mechanism. Unlike "chart", this needs no
+        extra network round trip -- everything it needs is already
+        present in `view` itself -- so it's just validation plus a
+        direct call through to that pure function.
+
+        Raises:
+        IQViewError -- table_index= was given (not supported -- no
+                      details.user_data.tables list to index into), or
+                      data_type resolves to "live" (no live-mode
+                      template has been found in a real histogram
+                      view's own query templates -- only snapshot/eot
+                      data is confirmed supported), or anything
+                      build_histogram_query_definitions() itself raises.
+        """
+        if table_index is not None:
+            raise IQViewError(
+                "table_index= is not supported for view_type %r -- "
+                "histogram views have no details.user_data.tables list "
+                "to index into" % (view_query_builder.HISTOGRAM_VIEW_TYPE,))
+        if data_type == "live":
+            raise IQViewError(
+                "test_live=True/data_type=\"live\" is not supported for "
+                "view_type %r -- no live-mode query template has been "
+                "found in a real histogram view's own query templates; "
+                "only snapshot/eot data is confirmed working" %
+                (view_query_builder.HISTOGRAM_VIEW_TYPE,))
+
+        return view_query_builder.build_histogram_query_definitions(
+            view, snapshot_name=snapshot_name)
+
+    def _build_xy_chart_definitions(self, view, data_type, table_index,
+                                     snapshot_name):
+        """query(name=...)'s "x_y_chart" view_type path -- see
+        view_query_builder.build_xy_chart_query_definitions()'s own
+        docstring. Same no-extra-network-round-trip shape as
+        "histogram" -- just validation plus a direct call through.
+
+        Raises:
+        IQViewError -- table_index= was given (not supported -- no
+                      details.user_data.tables list to index into), or
+                      data_type resolves to "live" (the one real
+                      provider checked declares data_type="eot"
+                      explicitly; only snapshot/eot data is confirmed
+                      supported), or anything
+                      build_xy_chart_query_definitions() itself raises.
+        """
+        if table_index is not None:
+            raise IQViewError(
+                "table_index= is not supported for view_type %r -- "
+                "x_y_chart views have no details.user_data.tables list "
+                "to index into" % (view_query_builder.XY_CHART_VIEW_TYPE,))
+        if data_type == "live":
+            raise IQViewError(
+                "test_live=True/data_type=\"live\" is not supported for "
+                "view_type %r -- the real provider checked declares "
+                "data_type=\"eot\" explicitly; only snapshot/eot data "
+                "is confirmed working" %
+                (view_query_builder.XY_CHART_VIEW_TYPE,))
+
+        return view_query_builder.build_xy_chart_query_definitions(
+            view, snapshot_name=snapshot_name)
 
     def _require_database_id(self):
         if not self._default_database_id:

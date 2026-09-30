@@ -47,8 +47,8 @@ def get_inst_url(inst):
 
 def main():
     temeva = Temeva(
-        os.environ["TEMEVA_EMAIL"],
-        os.environ["TEMEVA_PASSWORD"],
+        "username",
+        "password",
         os.environ.get("TEMEVA_SUBDOMAIN", "spirent"),
         base_url=os.environ["TEMEVA_URL"],
     )

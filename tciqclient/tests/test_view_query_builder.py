@@ -38,7 +38,10 @@ import pytest
 from tciqrestclient.exceptions import IQViewError
 from tciqrestclient.query import merge_modifiers
 from tciqrestclient.view_query_builder import (
-    build_field_resolver, build_query_definition, list_view_columns,
+    build_chart_duration_probe_definitions, build_chart_query_definitions,
+    build_field_resolver, build_histogram_query_definitions,
+    build_query_definition, build_xy_chart_filter_dropdown_query,
+    build_xy_chart_query_definitions, chart_numeric_series, list_view_columns,
     parse_unknown_attribute_error, strip_unknown_attribute)
 
 _DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -521,14 +524,134 @@ def test_snapshot_name_none_is_fine_against_live_table():
 
 # -- other view_types: dispatch + kind tagging -----------------------------
 
-def test_xy_chart_returns_single_kind_and_ignores_snapshot_name():
-    view = _synthetic_view("x_y_chart")
-    built = build_query_definition(view, snapshot_name="Snap1")
-    assert built["kind"] == "single"
-    # xy-chart's own query-building method never applies a snapshot
-    # filter -- confirmed by reading the whole method (see
-    # WIDGET_QUERY_PLAN.md section 2.2) -- so snapshot_name is a no-op.
-    assert built["definition"]["multi_result"]["filters"] == []
+def _synthetic_xy_chart_view(series=None, providers=None):
+    """A minimal but real-shaped "x_y_chart" view -- no `tables` list at
+    all (CONFIRMED real shape, see HANDOVER.md section 9's "x_y_chart"
+    entry): `details.user_data.series[]` instead, each entry naming a
+    single `query_provider` directly (no `system_data.statistics[]`
+    lookup indirection, unlike histogram)."""
+    provider = _synthetic_provider(attribute_query_updates=[
+        {"name": "col_a", "alias_name": "col_a",
+         "query_updates": [
+             {"key": "multi_result/subqueries/0/projections",
+              "values": ["raw.col_a as col_a"]}]},
+        {"name": "col_b", "alias_name": "col_b",
+         "query_updates": [
+             {"key": "multi_result/subqueries/0/projections",
+              "values": ["raw.col_b as col_b"]}]},
+    ])
+    providers = providers if providers is not None else [provider]
+    series = series if series is not None else [
+        {"query_provider": "synthetic_provider",
+         "h_axis": {"values": ["col_a"]}, "v_axis": {"values": ["col_b"]},
+         "filter_columns": []},
+    ]
+    return {
+        "name": "Synthetic XY Chart",
+        "details": {"view_type": "x_y_chart", "user_data": {"series": series}},
+        "effective_details": {"system_data": {"query_providers": providers}},
+    }
+
+
+def test_xy_chart_returns_multi_kind_keyed_by_provider_name():
+    view = _synthetic_xy_chart_view()
+    built = build_xy_chart_query_definitions(view)
+    assert built["kind"] == "multi"
+    assert set(built["definitions"]) == {"synthetic_provider"}
+    tree = built["definitions"]["synthetic_provider"]
+    node = tree["multi_result"]["subqueries"][0]
+    assert "raw.col_a as col_a" in node["projections"]
+    assert "raw.col_b as col_b" in node["projections"]
+
+
+def test_xy_chart_includes_filter_columns_as_active_names():
+    # CONFIRMED against a real server 2026-09-24: filter_columns[].name
+    # names a column by its query-safe ALIAS ("test_snapshot_name"),
+    # not the raw dotted attribute name _find_update_entry() actually
+    # keys on ("test.snapshot_name") -- unlike h_axis/v_axis, which
+    # both already use the raw dotted form. Silently no-ops without
+    # translating it first (see _resolve_alias_to_name()).
+    provider = _synthetic_provider(attribute_query_updates=[
+        {"name": "col_a", "alias_name": "col_a",
+         "query_updates": [
+             {"key": "multi_result/subqueries/0/projections",
+              "values": ["raw.col_a as col_a"]}]},
+        {"name": "test.snapshot_name", "alias_name": "test_snapshot_name",
+         "query_updates": [
+             {"key": "multi_result/subqueries/0/projections",
+              "values": ["raw.snapshot as test_snapshot_name"]}]},
+    ])
+    view = _synthetic_xy_chart_view(series=[
+        {"query_provider": "synthetic_provider",
+         "h_axis": {"values": ["col_a"]}, "v_axis": {"values": []},
+         "filter_columns": [{"name": "test_snapshot_name", "values": []}]},
+    ], providers=[provider])
+    built = build_xy_chart_query_definitions(view)
+    tree = built["definitions"]["synthetic_provider"]
+    assert "raw.snapshot as test_snapshot_name" in (
+        tree["multi_result"]["subqueries"][0]["projections"])
+
+
+def test_xy_chart_applies_snapshot_filter_via_bare_attribute():
+    # CONFIRMED against a real server 2026-09-24: snapshot_filter_provider
+    # can be entirely unset (None) while "test.snapshot_name" still has
+    # its own usable interactive_query_updates -- and that's what the
+    # real capture confirms actually gets used.
+    provider = _synthetic_provider(attribute_query_updates=[
+        {"name": "col_a", "alias_name": "col_a",
+         "query_updates": [
+             {"key": "multi_result/subqueries/0/projections",
+              "values": ["raw.col_a as col_a"]}]},
+        {"name": "test.snapshot_name", "alias_name": "test_snapshot_name",
+         "interactive_query_updates": [
+             {"action": "filters", "query_updates": [
+                 {"key": "multi_result/subqueries/0/filters",
+                  "values": ["raw.snapshot = '$(value)'"]},
+             ]},
+         ]},
+    ])
+    view = _synthetic_xy_chart_view(series=[
+        {"query_provider": "synthetic_provider",
+         "h_axis": {"values": ["col_a"]}, "v_axis": {"values": []},
+         "filter_columns": []},
+    ], providers=[provider])
+    built = build_xy_chart_query_definitions(view, snapshot_name="Snap1")
+    tree = built["definitions"]["synthetic_provider"]
+    assert "raw.snapshot = 'Snap1'" in (
+        tree["multi_result"]["subqueries"][0]["filters"])
+
+
+def test_xy_chart_raises_when_no_series():
+    view = _synthetic_xy_chart_view(series=[])
+    with pytest.raises(IQViewError, match="no series"):
+        build_xy_chart_query_definitions(view)
+
+
+def test_xy_chart_raises_on_unknown_provider():
+    view = _synthetic_xy_chart_view(series=[
+        {"query_provider": "nonexistent",
+         "h_axis": {"values": ["col_a"]}, "v_axis": {"values": []},
+         "filter_columns": []},
+    ])
+    with pytest.raises(IQViewError, match="nonexistent"):
+        build_xy_chart_query_definitions(view)
+
+
+def test_build_xy_chart_filter_dropdown_query_returns_providers_own_copy():
+    provider = _synthetic_provider(
+        filter_dropdown_query={"multi_result": {"projections": ["x"]}})
+    view = _synthetic_xy_chart_view(providers=[provider])
+    query = build_xy_chart_filter_dropdown_query(view)
+    assert query == {"multi_result": {"projections": ["x"]}}
+    # A real, independent copy -- mutating it doesn't touch the provider.
+    query["multi_result"]["projections"].append("y")
+    assert provider["filter_dropdown_query"]["multi_result"]["projections"] == ["x"]
+
+
+def test_build_xy_chart_filter_dropdown_query_raises_when_absent():
+    view = _synthetic_xy_chart_view()
+    with pytest.raises(IQViewError, match="filter_dropdown_query"):
+        build_xy_chart_filter_dropdown_query(view)
 
 
 def test_pie_chart_projects_group_by_and_total_fields():
@@ -551,14 +674,130 @@ def test_pie_chart_applies_snapshot_filter():
         built["multi_result"]["filters"])
 
 
+def _synthetic_histogram_view(statistics=None, group_by="col_b",
+                               providers=None):
+    """A minimal but real-shaped "histogram" view -- no `tables` list at
+    all (confirmed real shape, see HANDOVER.md section 9's "histogram"
+    entry), `details.user_data.statistics`/`group_by` instead, plus a
+    matching `effective_details.system_data.statistics` lookup table
+    alongside the usual `query_providers`."""
+    providers = providers if providers is not None else [_synthetic_provider()]
+    statistics = statistics if statistics is not None else [
+        {"statistics": "synthetic_provider.col_a", "group_by": group_by},
+    ]
+    return {
+        "name": "Synthetic Histogram",
+        "details": {
+            "view_type": "histogram",
+            "user_data": {"statistics": statistics, "group_by": group_by},
+        },
+        "effective_details": {"system_data": {
+            "query_providers": providers,
+            "statistics": [
+                {"name": "%s.%s" % (p["name"], attr["name"]),
+                 "query_provider": p["name"], "stat_name": attr["name"]}
+                for p in providers
+                for attr in p.get("attribute_query_updates") or []
+            ],
+        }},
+    }
+
+
 def test_histogram_returns_multi_kind_keyed_by_provider_name():
-    view = _synthetic_view("histogram")
-    built = build_query_definition(view)
+    view = _synthetic_histogram_view()
+    built = build_histogram_query_definitions(view)
     assert built["kind"] == "multi"
     assert set(built["definitions"]) == {"synthetic_provider"}
     tree = built["definitions"]["synthetic_provider"]
     assert "raw.col_a as col_a" in (
         tree["multi_result"]["subqueries"][0]["projections"])
+    # The view's own group_by ("col_b") is applied too, unlike the
+    # replaced v1's wrong provider["group_by"]/["default_group"] guess.
+    assert "raw.col_b as col_b" in (
+        tree["multi_result"]["subqueries"][0]["projections"])
+
+
+def test_histogram_splits_into_one_query_per_distinct_provider():
+    provider_a = _synthetic_provider(name="provider_a")
+    provider_b = _synthetic_provider(name="provider_b")
+    view = _synthetic_histogram_view(
+        statistics=[
+            {"statistics": "provider_a.col_a", "group_by": "col_b"},
+            {"statistics": "provider_b.col_b", "group_by": "col_b"},
+        ],
+        providers=[provider_a, provider_b])
+    built = build_histogram_query_definitions(view)
+    assert set(built["definitions"]) == {"provider_a", "provider_b"}
+
+
+def test_histogram_applies_snapshot_filter():
+    provider = _synthetic_provider(attribute_query_updates=[
+        {"name": "col_a", "alias_name": "col_a",
+         "query_updates": [
+             {"key": "multi_result/subqueries/0/projections",
+              "values": ["raw.col_a as col_a"]}]},
+        {"name": "test.snapshot_name", "alias_name": "test_snapshot_name",
+         "query_updates": [
+             {"key": "multi_result/subqueries/0/projections",
+              "values": ["raw.snapshot as test_snapshot_name"]}]},
+    ])
+    view = _synthetic_histogram_view(providers=[provider])
+    built = build_histogram_query_definitions(view, snapshot_name="Snap1")
+    tree = built["definitions"]["synthetic_provider"]
+    assert "view.test_snapshot_name = 'Snap1'" in (
+        tree["multi_result"]["filters"])
+
+
+def test_histogram_skips_snapshot_filter_for_provider_without_it():
+    # CONFIRMED against a real server 2026-09-24: not every histogram
+    # provider has a "test.snapshot_name" attribute at all -- forcing
+    # the filter anyway 400s with "unknown sub-query result name".
+    # snapshot_name= should just have no effect for such a provider,
+    # matching x_y_chart's own "ignored where not applicable" precedent.
+    view = _synthetic_histogram_view()  # default provider has no snapshot attr
+    built = build_histogram_query_definitions(view, snapshot_name="Snap1")
+    tree = built["definitions"]["synthetic_provider"]
+    assert tree["multi_result"]["filters"] == []
+
+
+def test_histogram_string_snapshot_filter_provider_resolves_via_attribute():
+    # CONFIRMED against a real server 2026-09-24: snapshot_filter_provider
+    # can be a bare string naming an attribute (with its own
+    # interactive_query_updates), not just an inline dict template.
+    provider = _synthetic_provider(
+        snapshot_filter_provider="test.snapshot_name",
+        attribute_query_updates=[
+            {"name": "col_a", "alias_name": "col_a",
+             "query_updates": [
+                 {"key": "multi_result/subqueries/0/projections",
+                  "values": ["raw.col_a as col_a"]}]},
+            {"name": "test.snapshot_name", "alias_name": "test_snapshot_name",
+             "interactive_query_updates": [
+                 {"action": "filters", "query_updates": [
+                     {"key": "multi_result/subqueries/0/filters",
+                      "values": ["raw.snapshot = '$(value)'"]},
+                 ]},
+             ]},
+        ])
+    view = _synthetic_histogram_view(providers=[provider])
+    built = build_histogram_query_definitions(view, snapshot_name="Snap1")
+    tree = built["definitions"]["synthetic_provider"]
+    assert "raw.snapshot = 'Snap1'" in (
+        tree["multi_result"]["subqueries"][0]["filters"])
+
+
+def test_histogram_raises_when_no_statistics_selected():
+    view = _synthetic_histogram_view(statistics=[])
+    with pytest.raises(IQViewError, match="no statistics selected"):
+        build_histogram_query_definitions(view)
+
+
+def test_histogram_raises_on_unknown_statistic():
+    view = _synthetic_histogram_view(statistics=[
+        {"statistics": "synthetic_provider.nonexistent", "group_by": "col_b"},
+    ])
+    with pytest.raises(IQViewError, match="nonexistent"):
+        build_histogram_query_definitions(view)
 
 
 def test_boxplot_returns_multi_kind_one_per_group():
@@ -580,10 +819,184 @@ def test_boxplot_falls_back_to_single_definition_keyed_by_provider_name():
 
 
 def test_health_indicator_and_ts_chart_still_unsupported():
-    # Deliberately deprioritized/out of scope for now (see
-    # WIDGET_QUERY_PLAN.md section 3) -- must keep raising IQViewError,
-    # not silently misbuild something.
+    # health_indicator: deliberately deprioritized/out of scope for now
+    # (see WIDGET_QUERY_PLAN.md section 3) -- must keep raising
+    # IQViewError, not silently misbuild something.
+    #
+    # "chart" IS now supported by IQClient.query() (confirmed against a
+    # real server 2026-09-24) -- but via a genuinely different, separate
+    # mechanism (build_chart_duration_probe_definitions()/
+    # build_chart_query_definitions() below, dispatched to directly from
+    # client.py, NOT through this function) -- see this module's own
+    # docstring's "chart" section for why. build_query_definition()
+    # itself correctly still raises for it unchanged, since "chart" was
+    # deliberately never added to _BUILDERS/SUPPORTED_VIEW_TYPES.
     for view_type in ("health_indicator", "chart"):
         view = _synthetic_view(view_type)
         with pytest.raises(IQViewError, match=view_type):
             build_query_definition(view)
+
+
+# -- "chart" view_type: build_chart_duration_probe_definitions() /
+# build_chart_query_definitions() -- see module docstring -----------------
+
+def _synthetic_chart_view(series_overrides=None):
+    """A minimal but real-shaped "chart" view -- one numeric series
+    ("rate", sharing provider "duration_provider") plus the "Test
+    Events" plotlines marker series every real chart view also carries
+    -- matching effective_details.system_data.series[].query_details/
+    series_query_providers and system_data.sampling_duration_providers/
+    base_queries as captured from a real server (see HANDOVER.md
+    section 9's "chart" entry)."""
+    user_data_series = [
+        {"name": "rate", "chart_type": "spline", "display_name": "Rate"},
+        {"name": "events.name", "chart_type": "plotlines",
+         "display_name": "Test Events"},
+    ]
+    if series_overrides is not None:
+        user_data_series = series_overrides
+
+    system_series = {
+        "name": "rate",
+        "query_details": [{
+            "sampling_duration_provider": "duration_provider",
+            "series_query_provider": "aggregate",
+            "sampling_duration_multiplier": 1.1,
+        }],
+        "series_query_providers": [{
+            "name": "aggregate",
+            "completed_data": {
+                "base_query_name": "base_completed",
+                "query_updates": [
+                    {"key": "multi_result/subqueries/0/projections",
+                     "values": ["avg(raw.rate) as rate",
+                                "interval(raw.ts, '{duration}') as interval"]},
+                    {"key": "multi_result/projections",
+                     "values": ["sum(leaf.rate) as value"]},
+                ],
+            },
+            "live_data": {
+                "base_query_name": "base_live",
+                "query_updates": [
+                    {"key": "single_result/projections",
+                     "values": ["max(raw.ts) as timestamp",
+                                "sum(raw.rate) as value"]},
+                ],
+            },
+        }],
+    }
+    return {
+        "name": "Synthetic Chart",
+        "details": {"view_type": "chart",
+                     "user_data": {"series": user_data_series}},
+        "effective_details": {"system_data": {
+            "series": [system_series],
+            "base_queries": [
+                {"name": "base_completed", "query": {"multi_result": {
+                    "filters": [], "groups": ["leaf.interval"],
+                    "orders": ["leaf.interval ASC"],
+                    "projections": ["leaf.interval as timestamp"],
+                    "subqueries": [{"alias": "leaf", "projections": [],
+                                     "groups": [], "orders": [],
+                                     "filters": []}],
+                }}},
+                {"name": "base_live", "query": {"single_result": {
+                    "filters": [], "groups": [], "orders": [],
+                    "projections": [],
+                }}},
+                {"name": "base_duration_probe", "query": {"multi_result": {
+                    "filters": [], "groups": [], "orders": [],
+                    "projections": ["max(leaf.avg) as sampling_duration"],
+                    "subqueries": [{"alias": "leaf", "projections": [],
+                                     "groups": [], "orders": [],
+                                     "filters": []}],
+                }}},
+            ],
+            "sampling_duration_providers": [{
+                "name": "duration_provider",
+                "base_query_name": "base_duration_probe",
+                "query_updates": [
+                    {"key": "multi_result/subqueries/0/projections",
+                     "values": ["avg(raw.ts) as avg"]},
+                ],
+            }],
+        }},
+    }
+
+
+def test_chart_numeric_series_excludes_plotlines():
+    view = _synthetic_chart_view()
+    series = chart_numeric_series(view)
+    assert [s["name"] for s in series] == ["rate"]
+
+
+def test_build_chart_duration_probe_definitions_returns_empty_when_live():
+    view = _synthetic_chart_view()
+    assert build_chart_duration_probe_definitions(view, is_live=True) == {}
+
+
+def test_build_chart_duration_probe_definitions_builds_patched_probe():
+    view = _synthetic_chart_view()
+    probes = build_chart_duration_probe_definitions(view, is_live=False)
+    assert set(probes) == {"duration_provider"}
+    tree = probes["duration_provider"]["multi_result"]
+    assert tree["subqueries"][0]["projections"] == ["avg(raw.ts) as avg"]
+
+
+def test_build_chart_duration_probe_definitions_dedups_shared_provider():
+    # Two series sharing the same sampling_duration_provider should
+    # only be probed once.
+    view = _synthetic_chart_view(series_overrides=[
+        {"name": "rate", "chart_type": "spline"},
+        {"name": "rate2", "chart_type": "spline"},
+    ])
+    view["effective_details"]["system_data"]["series"].append(
+        dict(view["effective_details"]["system_data"]["series"][0],
+             name="rate2"))
+    probes = build_chart_duration_probe_definitions(view, is_live=False)
+    assert set(probes) == {"duration_provider"}
+
+
+def test_build_chart_duration_probe_definitions_raises_on_missing_provider():
+    view = _synthetic_chart_view()
+    view["effective_details"]["system_data"]["series"][0][
+        "query_details"][0]["sampling_duration_provider"] = "nonexistent"
+    with pytest.raises(IQViewError, match="nonexistent"):
+        build_chart_duration_probe_definitions(view, is_live=False)
+
+
+def test_build_chart_duration_probe_definitions_raises_when_no_numeric_series():
+    view = _synthetic_chart_view(series_overrides=[
+        {"name": "events.name", "chart_type": "plotlines"},
+    ])
+    with pytest.raises(IQViewError, match="no numeric series"):
+        build_chart_duration_probe_definitions(view, is_live=False)
+
+
+def test_build_chart_query_definitions_completed_substitutes_duration():
+    view = _synthetic_chart_view()
+    built = build_chart_query_definitions(
+        view, is_live=False, duration_by_provider={"duration_provider": 0.9})
+    assert built["kind"] == "multi"
+    assert set(built["definitions"]) == {"rate"}
+    node = built["definitions"]["rate"]["multi_result"]
+    # avg_sampling_time=0.9 * multiplier=1.1 = 0.99 -> ceil -> 1 second.
+    assert "interval(raw.ts, 'PT1S') as interval" in (
+        node["subqueries"][0]["projections"])
+    assert "sum(leaf.rate) as value" in node["projections"]
+
+
+def test_build_chart_query_definitions_live_ignores_duration_by_provider():
+    view = _synthetic_chart_view()
+    built = build_chart_query_definitions(
+        view, is_live=True, duration_by_provider={})
+    node = built["definitions"]["rate"]["single_result"]
+    assert node["projections"] == ["max(raw.ts) as timestamp",
+                                    "sum(raw.rate) as value"]
+
+
+def test_build_chart_query_definitions_raises_when_duration_missing():
+    view = _synthetic_chart_view()
+    with pytest.raises(IQViewError, match="duration_provider"):
+        build_chart_query_definitions(
+            view, is_live=False, duration_by_provider={})

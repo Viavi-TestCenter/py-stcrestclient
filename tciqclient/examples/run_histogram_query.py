@@ -6,7 +6,7 @@ for this view_type -- namely, the *return shape*.
 Unlike table/x_y_chart/pie_chart (one query, a plain row list back),
 histogram is one of the two view_types (boxplot is the other -- see
 run_boxplot_query.py) where a single view can need more than one query
--- one per distinct query_provider its active statistics reference.
+-- one per distinct query_provider its selected statistics reference.
 query() still returns from one call, but the shape changes: a dict of
 {<provider name>: rows}, one entry per underlying query, instead of a
 plain row list. There's still only the one query() method -- no
@@ -14,34 +14,39 @@ query_histogram() -- this dict-vs-list distinction is the only thing
 that depends on which view_type you're querying (see query()'s own
 docstring in tciqrestclient/client.py).
 
-Also unlike table, histogram support here is reverse-engineered from
-HistogramWidgetModel.buildQueryDefinitions() (histogram.widget.model.
-ts:172) in magellan-frontend's own TS source -- the production GUI that
-already does this translation -- rather than confirmed against a real
-captured request. See WIDGET_QUERY_PLAN.md section 2.4 for exactly
-what's assumed, including that this v1 only builds one query even if a
-real histogram references more than one provider (the multi-provider
-case hasn't been seen in a real capture yet). Bucketing itself (turning
-raw values into histogram bars) is entirely client-side in the GUI --
-this only fetches the raw rows, same as everything else here; you'd
-still need to bucket them yourself if that's what you're after.
+CONFIRMED against a real server 2026-09-24 (a real "Frame Loss Duration
+Histogram" view/capture, and a second real view -- "Stream Latency
+Histogram View" -- that surfaced a genuine "not every provider supports
+snapshot_name=" gap along the way) -- superseding the previous NOT-yet-
+confirmed v1. Histogram's real `details.user_data` shape has no
+"tables" list at all -- it's {"statistics": [...], "group_by",
+"h_axis", "v_axis", "buckets_config", ...} instead -- but once a
+selected statistic is resolved to its provider + raw stat name via
+`effective_details.system_data.statistics`, it turns out to need no new
+templating mechanism: it's an ordinary derived_fact_query_updates entry
+on that provider, walked through the exact same machinery table/x_y_chart/
+pie_chart already use. See view_query_builder.py's
+build_histogram_query_definitions() for the full mechanism and
+HANDOVER.md section 9's "histogram" entry for the real capture this was
+built and confirmed against.
 
-There's no known histogram view name to hardcode the way "Detailed
-Stream Results" is a known table view for run_view_query.py -- this
-looks one up by view_type instead of by name. If your server has none,
-this prints a message and stops; use the GUI to add a histogram widget
-to a dashboard first.
+VIEW_NAME below is pinned to a known real view rather than looked up by
+view_type -- a server can have several real histograms, each with
+different snapshot-filter support (some providers have none at all --
+snapshot_name= is silently ignored for those, the same "ignored where
+not applicable" precedent x_y_chart already sets). _find_view_of_type()
+is kept as the fallback/customization point for a different one.
 """
 from tciqrestclient import IQClient
 from tciqrestclient.exceptions import IQRequestError, IQViewError
 
 VIEW_TYPE = "histogram"
+VIEW_NAME = "Frame Loss Duration Histogram"
 
 
 def _find_view_of_type(iq, view_type, timeout=60):
     """Look up the first view on the server with this view_type -- there
-    isn't a well-known view name to hardcode the way table's "Detailed
-    Stream Results" is, so this scans list_views() instead."""
+    isn't a well-known view name to hardcode in general."""
     for view in iq.list_views(timeout=timeout):
         if (view.get("details") or {}).get("view_type") == view_type:
             return view
@@ -51,7 +56,7 @@ def _find_view_of_type(iq, view_type, timeout=60):
 def main():
     iq = IQClient(debug=False)
 
-    my_tests = iq.list_tests(owner="she83111")
+    my_tests = iq.list_tests(owner="test-owner")
     if not my_tests:
         print("No tests found for that owner.")
         return
@@ -59,31 +64,25 @@ def main():
     iq.use_test(test["id"])
     print("Querying test: %s (%s)" % (test["name"], test["id"]))
 
-    view = _find_view_of_type(iq, VIEW_TYPE)
+    view = iq.find_view(VIEW_NAME, timeout=60)
+    if not view:
+        print("%r not found on this server -- falling back to the first "
+              "%r view instead." % (VIEW_NAME, VIEW_TYPE))
+        view = _find_view_of_type(iq, VIEW_TYPE)
     if not view:
         print(
             "No %r view found on this server -- add a histogram widget "
-            "to a dashboard in the GUI first, or point VIEW_TYPE/this "
-            "lookup at a view you already know the name of (see "
-            "run_view_query.py's find_view(name) for that pattern)." %
-            (VIEW_TYPE,))
+            "to a dashboard in the GUI first." % (VIEW_TYPE,))
         return
-
-    # NOTE: unlike single_level_table, a histogram view's `details.
-    # user_data` has no "tables" list at all -- CONFIRMED 2026-09-03
-    # against a real server (see HANDOVER.md section 9): its shape is
-    # {"statistics": [...], "group_by", "h_axis", "v_axis",
-    # "buckets_config", ...} instead. That's also *why* the query()
-    # call below currently always raises IQViewError for a real
-    # histogram view -- view_query_builder.py assumes every view_type
-    # has a "tables" list, which doesn't hold here.
     print("Found view %r (id=%s)" % (view["name"], view["id"]))
 
     try:
         # A dict of {<provider name>: rows} back, not a plain row list --
-        # see the module docstring above.
+        # see the module docstring above. snapshot_name= is silently
+        # ignored for any provider that doesn't support it.
         rows_by_provider = iq.query(
-            name=view["name"], data_type="eot", limit=100, timeout=60)
+            name=view["name"], snapshot_name="Snapshot", limit=100,
+            timeout=60)
     except IQViewError as e:
         print("Couldn't build a query from that view: %s" % e)
         return

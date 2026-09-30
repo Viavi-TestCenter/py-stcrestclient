@@ -137,7 +137,10 @@ def _env(monkeypatch):
     monkeypatch.setattr("tciqrestclient.config.load_dotenv", lambda *a, **k: None)
     monkeypatch.setenv("TCIQ_BASE_URL", BASE)
     for var in ("TCIQ_HOST", "TCIQ_PORT", "TCIQ_INSTALL_DIR", "TCIQ_DATABASE_ID",
-                "TCIQ_AION_URL", "TCIQ_AION_USERNAME", "TCIQ_AION_PASSWORD"):
+                "TCIQ_AION_URL", "TCIQ_AION_USERNAME", "TCIQ_AION_PASSWORD",
+                # Bare (no TCIQ_ prefix) fallback names consolidated with
+                # stcrestclient's own AionStcHttp -- see config.py.
+                "AION_URL", "AION_USERNAME", "AION_PASSWORD"):
         monkeypatch.delenv(var, raising=False)
 
 

@@ -27,7 +27,7 @@ from tciqrestclient import IQClient
 def main():
     iq = IQClient(timeout=120)
 
-    my_tests = iq.list_tests(owner="she83111")
+    my_tests = iq.list_tests(owner="test-owner")
     if not my_tests:
         print("No tests found for that owner.")
         return

@@ -54,7 +54,7 @@ def _find_view_of_type(iq, view_type, timeout=60):
 def main():
     iq = IQClient(debug=False)
 
-    my_tests = iq.list_tests(owner="she83111")
+    my_tests = iq.list_tests(owner="test-owner")
     if not my_tests:
         print("No tests found for that owner.")
         return

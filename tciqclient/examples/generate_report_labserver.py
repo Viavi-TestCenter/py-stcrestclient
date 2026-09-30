@@ -72,7 +72,7 @@ TEMPLATE_NAME = "Traffic Test Report"
 #: Statuses meaning "still working" -- see generate_report.py's module
 #: docstring for the full, real-server-confirmed story on these.
 IN_PROGRESS_STATUSES = ("queued", "generating")
-POLL_INTERVAL_SEC = 5
+POLL_INTERVAL_SEC = 10
 MAX_POLLS = 24  # 24 x 5s = 2 minutes
 
 

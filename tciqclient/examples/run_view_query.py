@@ -157,7 +157,7 @@ def main():
     # is sorted however orion-res returns it -- print the row counts so you
     # can pick a small one instead of blindly using the first match, since a
     # multi-million-row test is a common source of query timeouts.
-    my_tests = iq.list_tests(owner="she83111")
+    my_tests = iq.list_tests(owner="test-owner")
     if not my_tests:
         print("No tests found for that owner.")
         return

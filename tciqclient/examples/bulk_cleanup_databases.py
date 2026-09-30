@@ -1,25 +1,3 @@
-"""Bulk database cleanup -- delete every database over a storage-size
-threshold, or older than a given age (review feedback: "delete databases
-> size" / "delete database older than x days").
-
-*** DANGER: this can delete MANY databases in one run, permanently and
-*** irreversibly -- there is no undo, no trash/recycle bin, no server-side
-*** confirmation. Both list_databases_over_size()/list_databases_older_
-*** than() and their delete_* counterparts default to dry_run=True: they
-*** always return the full list of what matches, but only delete_*
-*** with dry_run=False explicitly given actually deletes anything. This
-*** script mirrors that: it always previews first, and -- like
-*** manage_test_database.py -- requires typing a literal confirmation
-*** phrase before passing dry_run=False for real.
-
-"Size" is total storage (get_database_summary()'s value_storage_kb +
-index_storage_kb, in KB -- CONFIRMED real fields, see
-tests/fixtures.py). "Age" is metadata["test.started"] (also confirmed
-real) compared against now.
-
-Edit MIN_SIZE_KB/MAX_AGE_DAYS below -- both start disabled (None) so this
-can't accidentally delete anything just by being run.
-"""
 from tciqrestclient import IQClient
 
 #: Delete databases at or over this many KB of total storage

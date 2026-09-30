@@ -1,5 +1,84 @@
 # Changelog
 
+## 0.1.3
+
+- Added `IQClient.list_profiles(view_id=None, detail=None, timeout=None)`
+  — result profiles (`GET /profiles`), a saved collection of views plus
+  their dashboard layout (the GUI's results "template"). CONFIRMED
+  against a real server (112 real profiles), including the `view_id=`
+  and `detail=` query-param filters. See `tciqrestclient/profiles.py`'s
+  module docstring and `API_REFERENCE.md`.
+- `TCIQ_AION_URL`/`TCIQ_AION_USERNAME`/`TCIQ_AION_PASSWORD` now fall back
+  to the bare `AION_URL`/`AION_USERNAME`/`AION_PASSWORD` env vars (no
+  `TCIQ_` prefix — `stcrestclient`'s own `AionStcHttp` convention) when
+  unset, so a machine already configured for `stcrestclient`'s AION
+  login needs no extra config for `tciqrestclient` too. Each of the
+  three resolves independently; explicit `aion_url=`/`aion_username=`/
+  `aion_password=` kwargs still win over both env conventions. One-way
+  only — `stcrestclient` itself is unchanged. See `HANDOVER.md` §9's
+  "AION credential env vars consolidated" entry.
+- The default HTTP timeout (used when neither `timeout=` nor
+  `TCIQ_TIMEOUT` is given) is now **120 seconds**, up from 10 —
+  `config.DEFAULT_TIMEOUT`, `aion_discovery.AION_DISCOVERY_TIMEOUT`, and
+  `Transport`'s own constructor default all updated together to stay in
+  sync.
+
+## 0.1.2
+
+- `TCIQ_INSTALL_DIR`/`install_dir=` now also accepts a value wrapped in
+  a matching pair of quotes (e.g.
+  `TCIQ_INSTALL_DIR="C:\...\TestCenter"`) — needed for a real
+  environment variable set directly in a Windows `cmd.exe` session
+  (`set VAR="value"` keeps the quotes as part of the value itself,
+  unlike a `.env` file, which `python-dotenv` already unquotes on its
+  own).
+- `query(name=...)` now also supports the `"chart"` view_type (a live/
+  time-series line chart widget, e.g. "Port Frame Rate Chart") —
+  CONFIRMED against a real server. Returns `{<series name>: rows}`, one
+  entry per real numeric series (its "Test Events" plotlines marker
+  series is excluded automatically); `table_index=`/`snapshot_name=`
+  both raise `IQViewError` for it (neither is a concept that's been
+  found in a real chart view's own query templates). See `HANDOVER.md`
+  section 9's "chart" entry for the full mechanism.
+- `query(name=...)`'s `"histogram"` support is now CONFIRMED against a
+  real server (two real views/captures), superseding the previous
+  never-confirmed implementation, which turned out to have a real,
+  wrong assumption (`provider["group_by"]` is a list of every *allowed*
+  choice, not the one actually selected by the view). Returns
+  `{<provider name>: rows}`, one entry per distinct `query_provider` the
+  selected statistics reference. `table_index=`/`test_live=True` both
+  raise `IQViewError` for it; `snapshot_name=` silently has no effect
+  for a provider that doesn't support snapshot filtering at all (not
+  every one does).
+- `query(name=...)`'s `"x_y_chart"` support is now CONFIRMED against a
+  real server (a real "StreamBlock Frame Loss Duration Chart" view/
+  capture), superseding the previous never-confirmed implementation,
+  which unconditionally ignored `snapshot_name=` and assumed a `tables`
+  list x_y_chart's real shape doesn't have at all. Returns
+  `{<query_provider name>: rows}`, one entry per series. A new
+  `view_query_builder.build_xy_chart_filter_dropdown_query(view)` helper
+  exposes the separate, standalone "available snapshots, in order"
+  query the real GUI also sends alongside the main data query -- not
+  part of `query()`'s own return value, kept optional the same way
+  `chart`'s `CHART_EVENTS_DEFINITION` is.
+- Fixed a real `"pagination requires at least one order expression"`
+  400 that any query/sub-query with no `orders` at all (`chart`'s own
+  live-mode queries; some real `histogram` providers; the new
+  `x_y_chart` filter-dropdown query above) would hit the moment
+  `query()`'s default row limit got attached — the caller's `limit=` is
+  now left off that specific query instead, generalized to cover
+  `definition=`/single-query calls too, not just multi-query ones.
+- `_apply_snapshot_filter()`'s resolution generalized again: when a
+  provider's `snapshot_filter_provider` is entirely unset, its
+  canonical `"test.snapshot_name"` attribute's own
+  `interactive_query_updates` is now tried too (CONFIRMED needed for
+  the real `x_y_chart` capture above) -- but only if that template's
+  values actually contain a `"$(value)"` placeholder token, ruling out
+  a real, confirmed counter-example ("Detailed Stream Results"'s own
+  `test.snapshot_name` attribute has a same-shaped but unrelated
+  `action == "filters"` entry with no placeholder at all, for something
+  else entirely) that would otherwise have silently broken the
+  already-confirmed table behavior.
 ## 0.1.1
 
 - `verify=`/`TCIQ_VERIFY_SSL`: TLS certificate verification for the main

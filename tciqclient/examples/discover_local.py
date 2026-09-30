@@ -48,7 +48,7 @@ def main():
     # Edit this to a real STC install directory to exercise it for real;
     # as written, neither file exists at this path, so it raises
     # IQConnectionError below rather than silently resolving nothing.
-    install_dir = r"C:\Program Files\Spirent Communications\Spirent TestCenter"
+    install_dir = r"C:\Program Files\Viavi Solutions\TestCenter"
     try:
         iq = IQClient(install_dir=install_dir)
         print("C/D) install_dir=%r -> %s" % (install_dir, iq.base_url))

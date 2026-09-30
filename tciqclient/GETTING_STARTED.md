@@ -93,6 +93,11 @@ keyword argument:
 | **STC install dir** | `TCIQ_INSTALL_DIR=<dir>` | `install_dir="<dir>"` |
 | **AION platform** | `TCIQ_AION_URL`, `TCIQ_AION_USERNAME`, `TCIQ_AION_PASSWORD` | `aion_url=..., aion_username=..., aion_password=...` |
 
+> Already set `AION_URL`/`AION_USERNAME`/`AION_PASSWORD` (no `TCIQ_`
+> prefix) for `stcrestclient`'s `AionStcHttp`? Each `TCIQ_AION_*`
+> variable above falls back to its bare counterpart when unset, so you
+> don't need to set the same AION login twice.
+
 You can set these as real environment variables, put them in a `.env`
 file in your working directory (create one yourself — there's nothing to
 copy since you don't have this repo checked out), or pass them straight
@@ -101,7 +106,7 @@ to `IQClient(...)`. All three work identically:
 ```bash
 # .env — create this file yourself, next to your script
 TCIQ_BASE_URL=http://127.0.0.1:9200
-TCIQ_TIMEOUT=10
+TCIQ_TIMEOUT=120
 ```
 
 ```python
@@ -112,7 +117,7 @@ iq = IQClient(base_url="http://127.0.0.1:9200")
 
 Other settings you can set the same way: `TCIQ_DATABASE_ID` (a default
 test id, or just call `use_test()` at runtime instead), `TCIQ_TIMEOUT`
-(HTTP timeout in seconds, default 10), `TCIQ_DEBUG=1` (log every request
+(HTTP timeout in seconds, default 120), `TCIQ_DEBUG=1` (log every request
 before sending it).
 
 **Precedence** when more than one is set: an explicit `IQClient(...)`
@@ -364,6 +369,19 @@ iq.delete_view(view_id="abc123")              # by id
 views — pass `timeout=` to give a specific call more time:
 `iq.list_views(timeout=60)`.
 
+A *profile* is a different, larger thing than a view — a saved
+collection of views plus their dashboard layout (the GUI's results
+"template"):
+
+```python
+profiles = iq.list_profiles()                 # every profile on the server
+profiles = iq.list_profiles(detail="summary") # smaller response -- omits each profile's layout
+profiles = iq.list_profiles(view_id="abc123") # only profiles that reference this view
+```
+
+Each profile's `views` list only carries each referenced view's `id` —
+pass one to `get_view()` (above) for its full definition.
+
 ---
 
 ## 10. Inspect a database's schema
@@ -533,6 +551,7 @@ iq.list_view_columns(name, test_live=None, active_only=False,
                       timeout=None, data_type=None, table_index=None)
 iq.save_view(name, details=None, description="", definition=None)
 iq.delete_view(view_id=None, name=None, timeout=None)
+iq.list_profiles(view_id=None, detail=None, timeout=None)
 
 # Query -- the one method for every view type
 iq.query(name=None, test_live=None, database_id=None, user=None,
@@ -585,11 +604,12 @@ here since this file is meant to stand alone.)
 > name `tciq` (versions `0.1.0`/`0.1.1` — still live at
 > `https://pypi.org/project/tciq/`) before being renamed to
 > `tciqrestclient`. Those old releases are left as-is, unmaintained.
-> **`tciqrestclient` itself has now also been published** — `0.1.1`, on
-> 2026-09-23, at `https://pypi.org/project/tciqrestclient/0.1.1/` — as a
-> separate, from-scratch PyPI project. The steps below are kept as a
-> reference for the *next* version bump, not a from-scratch first-time
-> walkthrough anymore.
+> **`tciqrestclient` itself has now also been published** — `0.1.1` on
+> 2026-09-23 (as a separate, from-scratch PyPI project), `0.1.2` on
+> 2026-09-24, then `0.1.3` on 2026-09-28 at
+> `https://pypi.org/project/tciqrestclient/0.1.3/`. The steps below are
+> kept as a reference for the *next* version bump, not a from-scratch
+> first-time walkthrough anymore.
 
 1. **Check the name is free**: only relevant before a project's very
    first upload — moot now that `tciqrestclient` is already published at
@@ -634,13 +654,14 @@ here since this file is meant to stand alone.)
    typing them interactively.
 8. **Verify**: `pip install tciqrestclient` in a brand-new venv, then
    `python -c "import tciqrestclient; print(tciqrestclient.__version__)"`.
-   (Already done for the `0.1.1` publish — see the note above.)
+   (Already done for the `0.1.1`, `0.1.2`, and `0.1.3` publishes — see
+   the note above.)
 
 **Before step 7 specifically**: a version number can never be reused on
 PyPI once uploaded — no re-upload, no true delete, only "yanking" a
-release (which hides it but doesn't free the number). `0.1.1` is now
-published; the *next* fix or feature ships as `0.1.2`/`0.2.0`, never a
-re-published `0.1.1` — make that a deliberate call, not an accident.
+release (which hides it but doesn't free the number). `0.1.3` is now
+published; the *next* fix or feature ships as `0.1.4`/`0.2.0`, never a
+re-published `0.1.3` — make that a deliberate call, not an accident.
 
 **Optional, for later releases**: PyPI's "Trusted Publishing" lets a
 GitHub Actions workflow upload directly via OIDC, with no stored API

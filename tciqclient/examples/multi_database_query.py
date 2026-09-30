@@ -22,7 +22,7 @@ VIEW_NAME = "Detailed Stream Results"
 def main():
     iq = IQClient()
 
-    my_tests = iq.list_tests(owner="she83111")
+    my_tests = iq.list_tests(owner="test-owner")
     if len(my_tests) < 2:
         print(
             "Need at least 2 tests for this example to be meaningful "

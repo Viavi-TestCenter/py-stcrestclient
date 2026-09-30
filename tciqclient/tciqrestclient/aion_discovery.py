@@ -37,7 +37,7 @@ AION_ORION_RES_PORT_NAME = "iq"
 #: Default HTTP timeout (seconds) applied to every AION IAM and inventory
 #: request during discovery.  Matches IQClient's own DEFAULT_TIMEOUT in
 #: config.py so neither value needs to be hardcoded in the other module.
-AION_DISCOVERY_TIMEOUT = 10.0
+AION_DISCOVERY_TIMEOUT = 120.0
 
 
 class _AionIAMSession:
@@ -153,7 +153,7 @@ def discover_via_aion(aion_url, username, password, node_name=None,
                            AION's HTTPS certificate.
     timeout             -- HTTP request timeout in seconds applied to every
                            AION IAM and inventory request during discovery.
-                           Default: 10.0 (AION_DISCOVERY_TIMEOUT). Pass None
+                           Default: 120.0 (AION_DISCOVERY_TIMEOUT). Pass None
                            to disable the timeout (not recommended in
                            production).
 

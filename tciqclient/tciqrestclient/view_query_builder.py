@@ -84,18 +84,51 @@ one query, or {"kind": "multi", "definitions": {<name>: <tree>, ...}} for
 the ones that aren't. This is what lets tciqrestclient.client.IQClient.query()
 remain the *only* public query method -- it inspects this tag internally
 rather than the caller needing a different method per widget type.
+
+`chart` (a live/time-series line chart widget, e.g. "Port Frame Rate
+Chart") is a further step beyond all of the above -- CONFIRMED against a
+real local server 2026-09-24, and NOT built via this module's usual
+_BUILDERS/_resolve_table_and_provider() path at all (there's no
+details.user_data.tables list, and effective_details.system_data has no
+query_providers[] -- see IQClient.query()'s SUPPORTED_VIEW_TYPES check,
+which routes "chart" to build_chart_duration_probe_definitions()/
+build_chart_query_definitions() below instead). Its real system_data
+shape is a small query-templating engine: `series[]` (one entry per
+plottable measurement, each naming a `base_queries[]` entry plus a list
+of {"key": "<path>", "values": [...]} patches -- see
+_apply_chart_query_updates() below for the same key/values shape every
+other builder's query_updates already use, but WITHOUT that mirror-to-
+outermost-projection side effect _apply_query_updates() has, since
+chart's own subqueries alias as "leaf", not "view", and its own
+templates already include their own outermost-projection update
+entries explicitly) and `sampling_duration_providers[]` (a real,
+separate query that has to run FIRST for non-live data, to learn how
+finely this test's real data is actually sampled -- fed into the
+{duration} placeholder every series' own template's non-live query
+references). See build_chart_duration_probe_definitions()'s and
+build_chart_query_definitions()'s own docstrings for the full two-phase
+flow and what's confirmed vs. inferred (in particular: the exact
+rounding rule turning a real sampling rate into an ISO-8601 {duration}
+string isn't confirmed from a frontend source, just a reasonable
+ceil()-based inference against real data).
 """
 import copy
+import math
 import re
 
 from .exceptions import IQViewError
 
-#: view_types confirmed to produce a `multi_result` tree this way. Others
-#: (chart/gauge/health_indicator/event_dashboard/etc.) have not been
-#: checked and may use a different result shape entirely (or none -- some
-#: view_types aren't backed by a row-returning query at all). Derived
-#: from _BUILDERS below (defined at the bottom of this module) so the two
-#: can never drift apart.
+#: view_types confirmed to produce a `multi_result` tree this way via
+#: the single-pure-function-per-type _BUILDERS mechanism below. "chart"
+#: (CHART_VIEW_TYPE below) is ALSO now supported by IQClient.query(),
+#: but deliberately isn't a member of this tuple/of _BUILDERS -- see the
+#: module docstring's "chart" section for why it needs a genuinely
+#: different, network-involving two-phase build instead. Other view_types
+#: (gauge/health_indicator/event_dashboard/etc.) remain unchecked and may
+#: use a different result shape entirely (or none -- some view_types
+#: aren't backed by a row-returning query at all). Derived from
+#: _BUILDERS below (defined at the bottom of this module) so the two can
+#: never drift apart.
 SUPPORTED_VIEW_TYPES = ()  # set at the bottom of this module
 
 
@@ -451,6 +484,30 @@ def _find_update_entry(provider, name):
     return None
 
 
+def _resolve_alias_to_name(provider, alias_or_name):
+    """CONFIRMED against a real x_y_chart view/capture 2026-09-24: a
+    series' own `filter_columns[].name` (e.g. "test_snapshot_name")
+    names a column by its query-safe alias, NOT its raw dotted
+    attribute name (e.g. "test.snapshot_name") that
+    _find_update_entry()/_build_projection_tree() actually key on --
+    unlike h_axis/v_axis, which both use the raw dotted form already.
+    Passing the alias straight through silently no-ops (see
+    _build_projection_tree()'s own "unknown/renamed column -- skip"
+    comment) -- confirmed the hard way: the real capture's
+    "test_snapshot_name" grouping/projection went missing entirely
+    without this. Falls through to `alias_or_name` unresolved (letting
+    the caller's own not-found handling decide) if it's already a raw
+    name, or doesn't match anything either way."""
+    if _find_update_entry(provider, alias_or_name) is not None:
+        return alias_or_name
+    for key in ("derived_fact_query_updates", "fact_query_updates",
+                "attribute_query_updates"):
+        for entry in provider.get(key) or []:
+            if entry.get("alias_name") == alias_or_name:
+                return entry.get("name")
+    return alias_or_name
+
+
 def _get_at_path(tree, path):
     node = tree
     for seg in path.split("/"):
@@ -593,26 +650,6 @@ def _build_table_query(table, provider, snapshot_name):
     return {"kind": "single", "definition": tree}
 
 
-def _build_xy_chart_query(table, provider, snapshot_name):
-    """view_type == 'x_y_chart' -- XYChartWidgetModel.getQueryDef()
-    (xy.chart.widget.model.ts:244). One query, same projection-gathering
-    mechanism as table. NOT yet validated against a real capture (see
-    WIDGET_QUERY_PLAN.md section 2.2).
-
-    snapshot_name is accepted for a consistent call signature but
-    intentionally ignored -- getQueryDef() never calls a snapshot-filter
-    helper at all (confirmed by reading the whole method; xy-chart is the
-    one widget type here without one) -- even against its own eot table,
-    which is the one thing build_query_definition()'s own eot-only check
-    doesn't (and can't) catch, since it's about whether the *table*
-    supports snapshots, not whether this specific widget type applies the
-    filter. This v1 also doesn't implement the
-    live sliding-window filter or the drilldown filter chain (§2.2) --
-    neither applies to a one-shot query(name=...) call; add them if a
-    future feature needs live/drilldown xy-chart queries specifically.
-    """
-    tree = _build_projection_tree(provider, _active_column_names(table))
-    return {"kind": "single", "definition": tree}
 
 
 def _build_pie_chart_query(table, provider, snapshot_name):
@@ -637,34 +674,6 @@ def _build_pie_chart_query(table, provider, snapshot_name):
     if snapshot_name:
         _apply_snapshot_filter(tree, provider, snapshot_name)
     return {"kind": "single", "definition": tree}
-
-
-def _build_histogram_queries(table, provider, snapshot_name):
-    """view_type == 'histogram' -- HistogramWidgetModel.
-    buildQueryDefinitions() (histogram.widget.model.ts:172), which
-    returns one query per distinct query_provider referenced by the
-    widget's active statistics (a histogram can plot columns from more
-    than one provider/table). NOT yet validated against a real capture
-    (see WIDGET_QUERY_PLAN.md section 2.4).
-
-    ASSUMED/INCOMPLETE: this v1 only knows about the single provider
-    already resolved for `table` (a real multi-provider histogram's exact
-    JSON shape -- how it lists more than one query_provider per table --
-    hasn't been seen yet), and its grouping column as provider["group_by"]
-    /provider["default_group"] (same caveat as pie chart's group_by/
-    total). Bucketing itself is client-side in the GUI (no server-side
-    aggregation clause exists), so this only needs to fetch the right raw
-    rows -- extend the provider-discovery part once a real multi-provider
-    capture is available.
-    """
-    extra = [n for n in (provider.get("group_by"),
-                          provider.get("default_group")) if n]
-    tree = _build_projection_tree(
-        provider, _active_column_names(table) + extra)
-    if snapshot_name:
-        _apply_snapshot_filter(tree, provider, snapshot_name)
-    name = provider.get("name") or "histogram"
-    return {"kind": "multi", "definitions": {name: tree}}
 
 
 def _build_boxplot_queries(table, provider, snapshot_name):
@@ -739,15 +748,63 @@ def _apply_snapshot_filter(tree, provider, snapshot_name):
     *user-selected* snapshot scope is ALL/LIVE -- not applicable here,
     since tciqrestclient has no such per-call scope concept: omitting
     snapshot_name= already gets the equivalent "no filter" behavior.
+
+    A third shape, CONFIRMED against a real histogram view 2026-09-24:
+    `snapshot_filter_provider` can also be a bare string (e.g.
+    `"test.snapshot_name"`) instead of the template embedded inline --
+    just naming the attribute that serves as the snapshot filter. That
+    attribute's own entry (found via _find_update_entry(), same as an
+    ordinary active column) is used instead; its own
+    interactive_query_updates carry the same action == "filters"
+    template shape, unpacked the identical way.
+
+    A fourth case, CONFIRMED against a real x_y_chart view/capture the
+    same day: `snapshot_filter_provider` can also just be missing
+    (None) even though the "test.snapshot_name" attribute itself still
+    has its own interactive_query_updates -- and the real capture
+    confirms THAT is what's actually used, not the raw outermost
+    fallback below. So None is treated the same as the string case
+    above, naming "test.snapshot_name" explicitly -- every provider
+    seen so far uses that same canonical name for its snapshot column,
+    whether or not it also happens to set snapshot_filter_provider to
+    point at it.
+
+    Confirmed real counter-example, same day, that ruled out an even
+    simpler version of that fourth case: "Detailed Stream Results"'s
+    own real eot provider ALSO has an action == "filters"
+    interactive_query_updates entry on "test.snapshot_name" -- but its
+    values are the bare literal string "test.snapshot_name", with no
+    "$(value)" placeholder token at all (a different template, for
+    something else entirely -- not a real, usable filter expression on
+    its own). Only a template whose values actually contain "$(value)"
+    -- confirmed real for both the histogram and x_y_chart cases above
+    -- is treated as a real snapshot-filter template; this table
+    provider's own filters-action entry is correctly skipped, falling
+    through to the unchanged, already-confirmed outermost fallback.
     """
+    def _is_snapshot_filter_action(update):
+        if update.get("action") != "filters":
+            return False
+        updates = update.get("query_updates") or []
+        return any("$(value)" in v
+                   for upd in updates for v in upd.get("values") or [])
+
     snapshot_provider = provider.get("snapshot_filter_provider")
     template = None
     if isinstance(snapshot_provider, dict):
         template = next(
             (u for u in
              snapshot_provider.get("interactive_query_updates") or []
-             if u.get("action") == "filters"),
+             if _is_snapshot_filter_action(u)),
             None)
+    else:
+        entry = _find_update_entry(
+            provider, snapshot_provider or "test.snapshot_name")
+        if entry:
+            template = next(
+                (u for u in entry.get("interactive_query_updates") or []
+                 if _is_snapshot_filter_action(u)),
+                None)
 
     if template:
         for upd in template.get("query_updates") or []:
@@ -762,15 +819,541 @@ def _apply_snapshot_filter(tree, provider, snapshot_name):
             ["view.test_snapshot_name = '%s'" % snapshot_name])
 
 
+#: view_type this section applies to. Deliberately NOT a key in
+#: _BUILDERS/SUPPORTED_VIEW_TYPES, same reasoning as CHART_VIEW_TYPE
+#: below -- see build_histogram_query_definitions()'s own docstring:
+#: unlike every _BUILDERS entry, a histogram view has no
+#: details.user_data.tables list at all to resolve via
+#: _resolve_table_and_provider(), and can genuinely span more than one
+#: query_provider in a single call (one query per provider, not one
+#: query overall).
+HISTOGRAM_VIEW_TYPE = "histogram"
+
+
+def build_histogram_query_definitions(view, snapshot_name=None):
+    """view_type == 'histogram' -- CONFIRMED against a real server
+    2026-09-24 (a real "Frame Loss Duration Histogram" view/capture --
+    see HANDOVER.md section 9's "histogram" entry), superseding the
+    previous NOT-yet-confirmed v1 this replaced.
+
+    Unlike every _BUILDERS entry, histogram's real `details.user_data`
+    shape has no `tables` list at all -- it's `{"statistics": [...],
+    "group_by", "h_axis", "v_axis", "buckets_config", ...}` instead (one
+    entry per selected statistic, e.g. {"statistics":
+    "<provider>.<stat>", "group_by": "stream_block.name", ...}), and its
+    `effective_details.system_data` carries an extra `statistics[]`
+    lookup table (mapping each `"<provider>.<stat>"` full name to its
+    `query_provider`/raw `stat_name`) alongside the usual
+    `query_providers[]` every _BUILDERS-dispatched type already shares.
+    Once a selected statistic is resolved to its provider + raw
+    stat_name via that lookup, though, it turns out to need NO new
+    templating mechanism at all: `stat_name` (e.g.
+    "stream_stats.min_frame_loss_duration") is just an ordinary
+    `derived_fact_query_updates` entry on that provider, walked through
+    the exact same `_build_projection_tree()`/`_apply_query_updates()`
+    primitive every other builder already uses -- confirmed structurally
+    identical (byte-for-byte, at every nesting level) to a real captured
+    request for it.
+
+    The one genuinely new wrinkle: histogram statistics need grouping,
+    unlike a plain table row list. The view's own `details.user_data.
+    group_by` (e.g. "stream_block.name") -- NOT `provider["group_by"]`,
+    which is a list of every *allowed* choice, not the one actually
+    selected, confirmed a wrong assumption in the replaced v1 -- names an
+    ordinary attribute whose own `query_updates` already add the right
+    `groups` entry at the right nesting level, so it's walked through
+    `_build_projection_tree()` exactly like any selected statistic; no
+    separate grouping logic is needed.
+
+    A histogram can genuinely span more than one query_provider in a
+    single view (see this view_type's own docstring note above) -- each
+    distinct provider referenced by the selected statistics gets its own
+    query, grouped together the same way the previous v1 already
+    returned its result (kept unchanged): {"kind": "multi",
+    "definitions": {<provider_name>: <tree>, ...}}.
+
+    Arguments:
+    view          -- A view object, as returned by get_view()/
+                     find_view_by_name()/list_views() -- must include
+                     effective_details.
+    snapshot_name -- Same as build_query_definition()'s own -- restricts
+                     each provider's query to one named snapshot, but
+                     ONLY for a provider that actually has a
+                     "test.snapshot_name" attribute of its own --
+                     CONFIRMED against a real server that not every
+                     provider does ("Stream Latency Histogram View"'s
+                     stream_provider_snapshot provider has none at all;
+                     unconditionally trying it anyway 400s with "unknown
+                     sub-query result name", confirmed the hard way).
+                     Silently has no effect on a provider without one,
+                     the same "ignored where not applicable" precedent
+                     x_y_chart already sets for snapshot_name=. Where a
+                     provider does have it, it's included as an active
+                     column/grouping dimension whether or not
+                     snapshot_name= is actually given (reasonable
+                     inference: blending rows across different snapshots
+                     into one min/avg/max would otherwise silently
+                     produce a meaningless number) -- CONFIRMED only
+                     WITH a real snapshot_name given, since the real
+                     capture this was built from always had one.
+
+    Raises:
+    IQViewError -- the view has no statistics selected, a selected
+                  statistic isn't found in system_data.statistics, or
+                  its named query_provider isn't found in
+                  system_data.query_providers.
+    """
+    system_data = _get(view, "effective_details", "system_data") or {}
+    stat_lookup = {s.get("name"): s for s in system_data.get("statistics") or []}
+    providers_by_name = {
+        p.get("name"): p for p in system_data.get("query_providers") or []}
+
+    selected = _get(view, "details", "user_data", "statistics") or []
+    if not selected:
+        raise IQViewError(
+            "view %r has no statistics selected" % (view.get("name"),))
+
+    view_group_by = _get(view, "details", "user_data", "group_by")
+    groups = {}  # provider_name -> [(stat_name, group_by), ...]
+    for stat in selected:
+        full_name = stat.get("statistics")
+        info = stat_lookup.get(full_name)
+        if info is None:
+            raise IQViewError(
+                "view %r's statistic %r not found in system_data."
+                "statistics" % (view.get("name"), full_name))
+        provider_name = info.get("query_provider")
+        groups.setdefault(provider_name, []).append(
+            (info.get("stat_name"), stat.get("group_by")))
+
+    definitions = {}
+    for provider_name, stats in groups.items():
+        provider = providers_by_name.get(provider_name)
+        if provider is None:
+            raise IQViewError(
+                "view %r references query_provider %r, but no matching "
+                "entry was found in effective_details.system_data."
+                "query_providers" % (view.get("name"), provider_name))
+        group_by_name = (
+            next((g for _, g in stats if g), None) or view_group_by)
+        # Not every provider supports snapshot-scoping at all -- CONFIRMED
+        # against a real server 2026-09-24 ("Stream Latency Histogram
+        # View"'s stream_provider_snapshot provider has no
+        # snapshot_filter_provider AND no "test.snapshot_name" attribute
+        # of its own at all): unconditionally adding it (as the first
+        # real capture this was built from needed) 400s with "unknown
+        # sub-query result name" for a provider that never projects it.
+        # Only add it -- and only attempt snapshot_name= -- when this
+        # specific provider actually has it.
+        supports_snapshot = _find_update_entry(
+            provider, "test.snapshot_name") is not None
+        active_names = (
+            ([group_by_name] if group_by_name else [])
+            + (["test.snapshot_name"] if supports_snapshot else [])
+            + [stat_name for stat_name, _ in stats])
+        tree = _build_projection_tree(provider, active_names)
+        if snapshot_name and supports_snapshot:
+            _apply_snapshot_filter(tree, provider, snapshot_name)
+        definitions[provider_name] = tree
+    return {"kind": "multi", "definitions": definitions}
+
+
+#: view_type this whole chart-building section below applies to.
+#: Deliberately NOT a key in _BUILDERS/SUPPORTED_VIEW_TYPES -- see the
+#: module docstring's "chart" section for why it needs a genuinely
+#: different two-phase, network-involving build; IQClient.query() checks
+#: for this value explicitly before ever consulting SUPPORTED_VIEW_TYPES.
+CHART_VIEW_TYPE = "chart"
+
+#: A real DevTools capture of the query the GUI sends for every chart
+#: view's "Test Events" plotlines overlay (the marker series every
+#: chart view's details.user_data.series ends with, alongside its real
+#: numeric series -- see chart_numeric_series() below, which excludes
+#: it). Fixed and NOT view-specific -- confirmed 2026-09-24 -- so
+#: nothing about this one needed reverse-engineering.
+CHART_EVENTS_DEFINITION = {
+    "single_result": {
+        "projections": [
+            "events.name", "events.display_name", "events.category",
+            "events.port",
+        ],
+        "filters": [],
+        "groups": [
+            "events.name", "events.display_name", "events.category",
+            "events.port",
+        ],
+        "orders": ["events.display_name", "events.port ASC"],
+    }
+}
+
+
+def chart_numeric_series(view):
+    """The subset of a "chart" view's details.user_data.series that
+    carry real queryable data -- excluding the "Test Events" plotlines
+    marker series every chart view also lists (see
+    CHART_EVENTS_DEFINITION above)."""
+    series = _get(view, "details", "user_data", "series") or []
+    return [s for s in series if s.get("chart_type") != "plotlines"]
+
+
+def _find_chart_base_query(system_data, name):
+    for entry in system_data.get("base_queries") or []:
+        if entry.get("name") == name:
+            return entry["query"]
+    raise IQViewError(
+        "base_query %r not found in system_data.base_queries" % (name,))
+
+
+def _find_chart_system_series(system_data, name):
+    """A user_data series entry (chart_numeric_series()'s own return
+    value) only carries display metadata -- its real query_details/
+    series_query_providers live on the matching-by-name entry in
+    effective_details.system_data.series instead, confirmed against a
+    real server."""
+    for entry in system_data.get("series") or []:
+        if entry.get("name") == name:
+            return entry
+    return None
+
+
+def _apply_chart_query_updates(tree, query_updates):
+    """Like _apply_query_updates() above (same {"key": "a/b/0/c",
+    "values": [...]} shape, same per-path append-with-dedup via
+    _append_at_path()) but WITHOUT that function's mirror-to-outermost-
+    projection side effect: chart's own subqueries alias as "leaf", not
+    "view", so that mirror's hardcoded "view.%s as %s" would emit a
+    wrong, unresolvable alias reference here -- confirmed by inspecting
+    a real chart view's own templates, which already include their own
+    explicit "multi_result/projections" update entries wherever a
+    subquery's projection needs to surface at the outer level (e.g.
+    "sum(leaf.generator_frame_rate) as value"), so no such mirroring is
+    ever needed for this view_type."""
+    for upd in query_updates:
+        values = upd.get("values")
+        if values is None and "value" in upd:
+            values = [upd["value"]]
+        if values is None:
+            continue
+        _append_at_path(tree, upd["key"], values)
+
+
+def build_chart_duration_probe_definitions(view, is_live):
+    """Phase 1 of building a "chart" view_type's real queries (see
+    build_chart_query_definitions() for phase 2). For non-live/
+    "completed" data, every numeric series' template's {duration}
+    placeholder needs a real number first -- how finely this specific
+    test's real data happens to be sampled, from actually running its
+    sampling_duration_provider's own real query. Not needed at all for
+    live data -- CONFIRMED against a real server: the live_data variant
+    of every series template has no {duration} placeholder anywhere.
+
+    Return:
+    {} if is_live. Otherwise {<sampling_duration_provider name>:
+    <multi_result dict>} -- one entry per DISTINCT provider referenced
+    by this view's numeric series (usually one per series, but two
+    series legitimately share the same provider when they come from the
+    same measurement table -- deduplicated so it's only probed once).
+    IQClient.query() runs each of these for real, then passes the
+    resulting {name: avg_sampling_time} into
+    build_chart_query_definitions()'s duration_by_provider= argument.
+
+    Raises:
+    IQViewError -- the view has no numeric series, a series has no
+                  query_details, or a series' own
+                  sampling_duration_provider name doesn't match anything
+                  in system_data.sampling_duration_providers.
+    """
+    if is_live:
+        return {}
+
+    system_data = _get(view, "effective_details", "system_data") or {}
+    series_list = chart_numeric_series(view)
+    if not series_list:
+        raise IQViewError(
+            "view %r has no numeric series to query" % (view.get("name"),))
+
+    probes = {}
+    for series in series_list:
+        name = series.get("name")
+        system_series = _find_chart_system_series(system_data, name)
+        query_details = system_series and (
+            system_series.get("query_details") or [None])[0]
+        if not query_details:
+            raise IQViewError(
+                "view %r's series %r has no matching entry (with "
+                "query_details) in effective_details.system_data.series" %
+                (view.get("name"), name))
+        provider_name = query_details.get("sampling_duration_provider")
+        if not provider_name or provider_name in probes:
+            continue
+        provider = next(
+            (p for p in system_data.get("sampling_duration_providers") or []
+             if p.get("name") == provider_name), None)
+        if provider is None:
+            raise IQViewError(
+                "view %r's series %r references sampling_duration_provider "
+                "%r, but no matching entry was found in system_data."
+                "sampling_duration_providers" %
+                (view.get("name"), series.get("name"), provider_name))
+        tree = copy.deepcopy(
+            _find_chart_base_query(system_data, provider["base_query_name"]))
+        _apply_chart_query_updates(tree, provider["query_updates"])
+        probes[provider_name] = tree
+    return probes
+
+
+def build_chart_query_definitions(view, is_live, duration_by_provider):
+    """Phase 2: the real per-series queries themselves, with each
+    non-live series' {duration} placeholder substituted from
+    duration_by_provider (IQClient.query()'s real results from running
+    build_chart_duration_probe_definitions()'s queries -- see that
+    function's docstring; duration_by_provider is ignored entirely when
+    is_live).
+
+    The exact rule turning a real avg_sampling_time into the {duration}
+    ISO-8601 string every non-live series template references isn't
+    confirmed from a frontend source -- ceil() to the next whole second,
+    after applying the series' own real sampling_duration_multiplier, is
+    a reasonable inference confirmed sensible against real data (a
+    steady real generator rate came back correctly, flat and stable, at
+    both a 1-second and a 2-second resolved duration on repeat real
+    runs), not a byte-for-byte confirmed rounding rule.
+
+    Return:
+    {"kind": "multi", "definitions": {<series name>: <multi_result or
+    single_result dict>, ...}} -- one entry per numeric series (see
+    chart_numeric_series()), keyed by the series' own internal `name`
+    (e.g. "tx_port_basic_stats.generator_frame_rate"), same convention
+    as histogram/boxplot's own provider-name/statistic-name keys, not
+    its GUI display_name.
+
+    Raises:
+    IQViewError -- a series/provider reference doesn't match anything
+                  in its own series_query_providers or in
+                  system_data.base_queries, a series has no live_data/
+                  completed_data template for the requested mode, or
+                  (non-live only) duration_by_provider is missing a
+                  provider this series needs -- meaning
+                  build_chart_duration_probe_definitions()'s query for
+                  it wasn't run and passed in first.
+    """
+    system_data = _get(view, "effective_details", "system_data") or {}
+    variant_key = "live_data" if is_live else "completed_data"
+    definitions = {}
+    for series in chart_numeric_series(view):
+        name = series.get("name")
+        system_series = _find_chart_system_series(system_data, name)
+        query_details = system_series and (
+            system_series.get("query_details") or [None])[0]
+        if not query_details:
+            raise IQViewError(
+                "view %r's series %r has no matching entry (with "
+                "query_details) in effective_details.system_data.series" %
+                (view.get("name"), name))
+        provider_name = query_details.get("series_query_provider")
+        provider = next(
+            (p for p in system_series.get("series_query_providers") or []
+             if p.get("name") == provider_name), None)
+        if provider is None:
+            raise IQViewError(
+                "view %r's series %r references series_query_provider "
+                "%r, but no matching entry was found in its own "
+                "series_query_providers" %
+                (view.get("name"), name, provider_name))
+        variant = provider.get(variant_key)
+        if variant is None:
+            raise IQViewError(
+                "view %r's series %r has no %r query template" %
+                (view.get("name"), name, variant_key))
+
+        query_updates = variant["query_updates"]
+        if not is_live:
+            sampling_provider = query_details.get("sampling_duration_provider")
+            avg_sampling_time = duration_by_provider.get(sampling_provider)
+            if avg_sampling_time is None:
+                raise IQViewError(
+                    "no resolved sampling duration for provider %r -- "
+                    "run build_chart_duration_probe_definitions()'s real "
+                    "query for it and pass the result in first" %
+                    (sampling_provider,))
+            multiplier = query_details.get("sampling_duration_multiplier", 1.0)
+            seconds = max(math.ceil(avg_sampling_time * multiplier), 1)
+            duration = "PT%dS" % seconds
+            query_updates = [
+                {"key": u["key"],
+                 "values": [v.replace("{duration}", duration)
+                            for v in u.get("values") or []]}
+                for u in query_updates
+            ]
+
+        tree = copy.deepcopy(
+            _find_chart_base_query(system_data, variant["base_query_name"]))
+        _apply_chart_query_updates(tree, query_updates)
+        definitions[name] = tree
+    return {"kind": "multi", "definitions": definitions}
+
+
+#: view_type this section applies to. Deliberately NOT a key in
+#: _BUILDERS/SUPPORTED_VIEW_TYPES -- see build_xy_chart_query_definitions()'s
+#: own docstring: like "histogram", it needs no new templating
+#: mechanism, but its own `details.user_data.series[]` shape (one
+#: `query_provider` string per series, not a `tables` list) means it
+#: can't go through `_resolve_table_and_provider()` either.
+XY_CHART_VIEW_TYPE = "x_y_chart"
+
+
+def build_xy_chart_query_definitions(view, snapshot_name=None):
+    """view_type == 'x_y_chart' -- CONFIRMED against a real server
+    2026-09-24 (a real "StreamBlock Frame Loss Duration Chart" view/
+    capture), superseding the previous NOT-yet-confirmed v1 this
+    replaced (which unconditionally ignored snapshot_name= and assumed
+    a `tables` list that x_y_chart's real shape doesn't have at all --
+    dead on arrival for any real view, same story as histogram's
+    replaced v1).
+
+    Like histogram, this needs NO new templating mechanism -- once
+    resolved, `details.user_data.series[]` (one entry per plotted
+    series: `{"query_provider": "<name>", "h_axis": {"values": [...]},
+    "v_axis": {"values": [...]}, "filter_columns": [{"name": ...}, ...],
+    ...}`) just names ordinary `attribute_query_updates`/
+    `derived_fact_query_updates` columns on that ONE named provider,
+    walked through the exact same `_build_projection_tree()` primitive
+    table/histogram already use -- confirmed structurally identical
+    (byte-for-byte, at every nesting level -- this real view's structure
+    goes one level deeper than histogram's: outer `multi_result` wraps a
+    single `view` subquery, which itself wraps `join` -> `rxss`/`txss`)
+    to the query the real GUI actually sends. `filter_columns[].name`
+    (typically `"test_snapshot_name"`) is included as an active column
+    the same unconditional way histogram includes it -- CONFIRMED
+    correct against the real capture, which groups by it even with no
+    snapshot_name= filter of its own in play.
+
+    Unlike histogram, each series names exactly one query_provider
+    directly (no `system_data.statistics[]` lookup table indirection
+    needed) -- but a series has no `name` field of its own to key the
+    result by, so (matching histogram's own precedent) the provider
+    name is used instead. Two series sharing one provider would collide
+    under this key -- not seen in any real view yet, so not specially
+    handled; consider table_index=-style disambiguation if a real one
+    ever turns up.
+
+    Arguments:
+    view          -- A view object, as returned by get_view()/
+                     find_view_by_name()/list_views() -- must include
+                     effective_details.
+    snapshot_name -- Same as build_query_definition()'s own. CONFIRMED
+                     working against the real capture this was built
+                     from (which did have one) via
+                     _apply_snapshot_filter()'s now-generalized
+                     resolution (see its own docstring) -- this
+                     provider's own `snapshot_filter_provider` is
+                     unset, yet its `test.snapshot_name` attribute's
+                     own interactive_query_updates is what the real
+                     capture confirms actually gets used.
+
+    Return:
+    {"kind": "multi", "definitions": {<query_provider name>: <tree>,
+    ...}} -- one entry per series (see the collision caveat above).
+
+    Raises:
+    IQViewError -- the view has no series, a series has no
+                  query_provider, or its named provider isn't found in
+                  system_data.query_providers.
+    """
+    system_data = _get(view, "effective_details", "system_data") or {}
+    providers_by_name = {
+        p.get("name"): p for p in system_data.get("query_providers") or []}
+
+    series_list = _get(view, "details", "user_data", "series") or []
+    if not series_list:
+        raise IQViewError(
+            "view %r has no series to query" % (view.get("name"),))
+
+    definitions = {}
+    for series in series_list:
+        provider_name = series.get("query_provider")
+        if not provider_name:
+            raise IQViewError(
+                "view %r has a series with no query_provider" %
+                (view.get("name"),))
+        provider = providers_by_name.get(provider_name)
+        if provider is None:
+            raise IQViewError(
+                "view %r references query_provider %r, but no matching "
+                "entry was found in effective_details.system_data."
+                "query_providers" % (view.get("name"), provider_name))
+
+        active_names = (
+            list((series.get("h_axis") or {}).get("values") or [])
+            + list((series.get("v_axis") or {}).get("values") or [])
+            + [_resolve_alias_to_name(provider, f["name"])
+               for f in series.get("filter_columns") or []
+               if f.get("name")])
+        tree = _build_projection_tree(provider, active_names)
+        if snapshot_name:
+            _apply_snapshot_filter(tree, provider, snapshot_name)
+        definitions[provider_name] = tree
+    return {"kind": "multi", "definitions": definitions}
+
+
+def build_xy_chart_filter_dropdown_query(view, series_index=0):
+    """The separate, standalone query a real x_y_chart GUI also sends
+    alongside its main data query -- CONFIRMED against a real capture
+    2026-09-24: the ordered list of real snapshot names available to
+    filter/group by (`test.snapshot_name`/`test.snapshot_name_order`),
+    used to populate the GUI's own snapshot filter dropdown/axis
+    ordering. NOT part of build_xy_chart_query_definitions()'s own
+    return value -- like `chart`'s CHART_EVENTS_DEFINITION, it's an
+    independent, optional piece of data, not the series data itself.
+
+    Unlike CHART_EVENTS_DEFINITION, this one IS provider-specific --
+    it's the named series' own provider["filter_dropdown_query"], a
+    complete, ready-to-run definition needing no patching at all
+    (confirmed byte-for-byte identical to the real capture as-is).
+
+    Arguments:
+    view         -- Same as build_xy_chart_query_definitions().
+    series_index -- Which of the view's details.user_data.series[]
+                    entries to use (most real views have exactly one).
+
+    Return:
+    A `multi_result` dict, ready to pass to query(definition=...)
+    directly.
+
+    Raises:
+    IQViewError -- series_index is out of range, the series has no
+                  query_provider, the provider isn't found, or it has
+                  no filter_dropdown_query of its own.
+    """
+    series_list = _get(view, "details", "user_data", "series") or []
+    if not 0 <= series_index < len(series_list):
+        raise IQViewError(
+            "view %r has %d series; series_index=%d is out of range" %
+            (view.get("name"), len(series_list), series_index))
+    provider_name = series_list[series_index].get("query_provider")
+    system_data = _get(view, "effective_details", "system_data") or {}
+    provider = next(
+        (p for p in system_data.get("query_providers") or []
+         if p.get("name") == provider_name), None)
+    if provider is None:
+        raise IQViewError(
+            "view %r references query_provider %r, but no matching "
+            "entry was found in effective_details.system_data."
+            "query_providers" % (view.get("name"), provider_name))
+    query = provider.get("filter_dropdown_query")
+    if query is None:
+        raise IQViewError(
+            "provider %r has no filter_dropdown_query" % (provider_name,))
+    return copy.deepcopy(query)
+
+
 #: Dispatch table for build_query_definition() -- the single source of
 #: truth for which view_types are supported (SUPPORTED_VIEW_TYPES below
 #: is derived from this, not maintained separately).
 _BUILDERS = {
     "single_level_table": _build_table_query,
     "paged_single_level_table": _build_table_query,
-    "x_y_chart": _build_xy_chart_query,
     "pie_chart": _build_pie_chart_query,
-    "histogram": _build_histogram_queries,
     "boxplot": _build_boxplot_queries,
 }
 SUPPORTED_VIEW_TYPES = tuple(_BUILDERS)

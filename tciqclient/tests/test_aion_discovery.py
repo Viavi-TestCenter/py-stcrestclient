@@ -174,12 +174,12 @@ def test_aion_orion_res_port_name_default_is_iq():
 
 
 # ---------------------------------------------------------------------------
-# IQ-PYTHON-002: Discovery timeout (configurable, default 10 s)
+# IQ-PYTHON-002: Discovery timeout (configurable, default 120 s)
 # ---------------------------------------------------------------------------
 
 def test_aion_discovery_timeout_constant():
-    """AION_DISCOVERY_TIMEOUT must equal 10.0 (spec default)."""
-    assert AION_DISCOVERY_TIMEOUT == 10.0
+    """AION_DISCOVERY_TIMEOUT must equal 120.0 (spec default)."""
+    assert AION_DISCOVERY_TIMEOUT == 120.0
 
 
 def test_aion_session_default_timeout():
@@ -214,8 +214,8 @@ def test_discover_passes_timeout_to_requests():
 
 
 @responses_lib.activate
-def test_discover_default_timeout_is_ten_seconds():
-    """When timeout= is not given, 10.0 is used for all HTTP calls."""
+def test_discover_default_timeout_is_120_seconds():
+    """When timeout= is not given, 120.0 is used for all HTTP calls."""
     _register_happy_path(responses_lib)
     with mock.patch("requests.get") as mock_get, \
          mock.patch("requests.post") as mock_post:
@@ -226,6 +226,6 @@ def test_discover_default_timeout_is_ten_seconds():
             ok=True, json=mock.Mock(return_value=_TOKEN_RESP))
         discover_via_aion(AION, "user@example.com", "pass")
     for call in mock_get.call_args_list:
-        assert call.kwargs.get("timeout") == 10.0
+        assert call.kwargs.get("timeout") == 120.0
     for call in mock_post.call_args_list:
-        assert call.kwargs.get("timeout") == 10.0
+        assert call.kwargs.get("timeout") == 120.0

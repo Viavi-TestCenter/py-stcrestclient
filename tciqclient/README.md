@@ -60,6 +60,13 @@ explicit kwargs always override the environment. See `.env.example` for
 the full list of recognized `TCIQ_*` variables, and `tciqrestclient/config.py`'s
 module docstring for the authoritative reference.
 
+Already have `AION_URL`/`AION_USERNAME`/`AION_PASSWORD` set for
+`stcrestclient`'s `AionStcHttp` against the same AION deployment? Each
+`TCIQ_AION_*` variable above falls back to its bare (no `TCIQ_` prefix)
+counterpart if unset, so both packages can share one set of AION
+credentials — no need to set the same login twice under two different
+names.
+
 ## API Surface
 
 See [`API_REFERENCE.md`](API_REFERENCE.md) for the complete,
@@ -76,22 +83,25 @@ from tciqrestclient import IQClient, IQError, IQViewError   # all public names a
 |---|---|
 | Tests / databases | `list_tests()`, `get_test()`, `use_test()`, `delete_test()`, `rename_test()`, `get_database_schema()`, `list_table_names()`, `list_fields()` |
 | Views | `list_views()`, `get_view()`, `find_view()`, `list_view_columns()`, `save_view()`, `delete_view()` |
+| Profiles | `list_profiles()` — a saved collection of views plus dashboard layout |
 | Query | `query(name=... \| definition=..., test_live=, database_id=\|user=, snapshot_name=, filters=, sort=, group_by=, time_range=, limit=, timeout=, auto_repair=)` |
 | Reports | `list_report_templates()`, `generate_report()`, `get_report()`, `download_report()` |
 
 `query()` is the single public query method for every view type — it
 inspects the view's `view_type` internally and dispatches accordingly. It
 returns a plain `list[dict]` for `single_level_table`,
-`paged_single_level_table`, `x_y_chart`, `pie_chart`, and any
-`definition=` call, or a `{name: list[dict]}` dict for `histogram`
-(one query per provider) and `boxplot` (one query per statistic).
+`paged_single_level_table`, and any `definition=` call, or a
+`{name: list[dict]}` dict for `x_y_chart`/`histogram` (one query per
+provider), `boxplot` (one query per statistic), and `chart` (one query
+per real numeric series, e.g. "Port Frame Rate Chart" —
+`table_index=`/`snapshot_name=` both raise `IQViewError` for it).
 
-> **`x_y_chart` and `histogram` are confirmed broken against a real
-> server** — `query(name=...)` currently raises `IQViewError` for both
-> (`pie_chart`/`boxplot` are unconfirmed either way). Only
-> `single_level_table`/`paged_single_level_table` (the common "table"
-> view type) are confirmed working end-to-end. See `HANDOVER.md` §9
-> ("Widget query builders") for the root cause and status of each type.
+> **`pie_chart`/`boxplot` are unconfirmed against a real server** — no
+> real `pie_chart` view has ever been found anywhere to even test
+> against. `single_level_table`/`paged_single_level_table` (the common
+> "table" view type), `x_y_chart`, `chart`, and `histogram` are all
+> confirmed working end-to-end. See `HANDOVER.md` §9 ("Widget query
+> builders") for the root cause and status of each type.
 
 All errors raise a subclass of `IQError` (`IQConfigError`,
 `IQConnectionError`, `IQRequestError`, `IQQueryError`, `IQViewError`,

@@ -48,6 +48,25 @@ STCBLL_INI_RELPATH = "stcbll.ini"
 ORION_RES_YAML_RELPATH = os.path.join("orion-res", "etc", "orion-res.yaml")
 
 
+def _strip_matching_quotes(value):
+    """A raw TCIQ_INSTALL_DIR (or an install_dir= kwarg copy-pasted from
+    one) can arrive with a literal, matching pair of quotes still
+    attached -- e.g. ``TCIQ_INSTALL_DIR="C:\\Program Files\\Viavi Solutions\\TestCenter"`` set directly in a Windows
+    cmd.exe session. cmd.exe's own ``set`` keeps the quotes as part of
+    the variable's actual value (unlike a ``.env`` file, where
+    python-dotenv already strips a matching pair on its own -- this
+    only matters for a real, pre-set environment variable, or a value
+    passed straight through some other way that also doesn't strip
+    them). Strips one matching leading/trailing ``"``/``'`` pair;
+    anything else (no quotes, or a lone/mismatched one) is left
+    untouched rather than guessed at.
+    """
+    if (isinstance(value, str) and len(value) >= 2
+            and value[0] == value[-1] and value[0] in "\"'"):
+        return value[1:-1]
+    return value
+
+
 def discover_iq_address(install_dir):
     """Find the (host, port) of the orion-res service for the given STC
     installation.
@@ -55,6 +74,7 @@ def discover_iq_address(install_dir):
     Raises IQConnectionError if install_dir doesn't exist, or neither
     stcbll.ini nor orion-res.yaml yields a usable address.
     """
+    install_dir = _strip_matching_quotes(install_dir)
     if not install_dir or not os.path.isdir(install_dir):
         raise IQConnectionError(
             "STC install_dir not found: %r" % (install_dir,))

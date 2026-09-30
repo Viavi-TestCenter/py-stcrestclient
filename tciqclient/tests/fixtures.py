@@ -231,3 +231,31 @@ VIEW = {
         },
     },
 }
+
+# GET /profiles -- real capture (detail=full, the server's own default),
+# trimmed to one profile with a single referenced view (real profiles can
+# reference several -- see tciqrestclient.profiles module docstring for
+# the full shape notes, confirmed against a real server with 112 profiles).
+PROFILE = {
+    "id": "40cdae9295e94021b1e9b543593eb27b",
+    "serial": 2,
+    "name": "Consecutive Bad Packet Measurement Results",
+    "description": "Result profile contains consecutive bad packet result "
+                    "views",
+    "metadata": {
+        "application.name": "TestCenter",
+        "application.owned": "true",
+        "application.id": "e8c43606b3924efbaa86f82bc47dd279",
+        "profile.version": "1",
+        "profile.owner": "",
+    },
+    "details": {
+        "layouts": [{"id": "1b368e0a247d48aba94f319f8e120dcc",
+                      "location": "0,0"}],
+    },
+    "views": [
+        {"id": "1b368e0a247d48aba94f319f8e120dcc", "parent_id": "",
+         "serial": 0, "name": "", "description": "", "metadata": None,
+         "details": None, "effective_details": None},
+    ],
+}

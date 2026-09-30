@@ -21,7 +21,13 @@ def iq_client(monkeypatch):
     for var in ("TCIQ_BASE_URL", "TCIQ_HOST", "TCIQ_PORT", "TCIQ_INSTALL_DIR",
                 "TCIQ_DATABASE_ID", "TCIQ_TIMEOUT", "TCIQ_DEBUG",
                 "TCIQ_AION_URL", "TCIQ_AION_USERNAME", "TCIQ_AION_PASSWORD",
-                "TCIQ_AION_NODE_NAME", "TCIQ_AION_PORT_NAME", "TCIQ_AION_CA_CERT"):
+                "TCIQ_AION_NODE_NAME", "TCIQ_AION_PORT_NAME", "TCIQ_AION_CA_CERT",
+                # Bare (no TCIQ_ prefix) fallback names consolidated with
+                # stcrestclient's own AionStcHttp -- see config.py. Cleared
+                # too so a real one of these set on the machine running
+                # the tests (plausible: stcrestclient's own documented
+                # convention) can't leak into a supposedly-isolated test.
+                "AION_URL", "AION_USERNAME", "AION_PASSWORD"):
         monkeypatch.delenv(var, raising=False)
 
     from tciqrestclient import IQClient

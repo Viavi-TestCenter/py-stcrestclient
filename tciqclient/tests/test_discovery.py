@@ -32,6 +32,36 @@ def test_local_orion_res_yaml(tmp_path):
     assert discover_iq_address(str(tmp_path)) == ("127.0.0.1", 9200)
 
 
+def test_install_dir_with_matching_double_quotes_is_stripped(tmp_path):
+    # A real, pre-set TCIQ_INSTALL_DIR (e.g. Windows cmd.exe's own `set
+    # VAR="value"`, which keeps the quotes as part of the value itself
+    # -- unlike a .env file, which python-dotenv already unquotes)
+    # arrives with the quotes still attached.
+    _write(str(tmp_path / "orion-res" / "etc" / "orion-res.yaml"), """\
+        service:
+          addr: 127.0.0.1:9200
+        """)
+    quoted = '"%s"' % str(tmp_path)
+    assert discover_iq_address(quoted) == ("127.0.0.1", 9200)
+
+
+def test_install_dir_with_matching_single_quotes_is_stripped(tmp_path):
+    _write(str(tmp_path / "orion-res" / "etc" / "orion-res.yaml"), """\
+        service:
+          addr: 127.0.0.1:9200
+        """)
+    quoted = "'%s'" % str(tmp_path)
+    assert discover_iq_address(quoted) == ("127.0.0.1", 9200)
+
+
+def test_install_dir_with_mismatched_quote_is_left_alone(tmp_path):
+    # A lone/mismatched leading quote isn't a real quoting convention --
+    # left untouched (and so correctly fails to resolve) rather than
+    # guessed at.
+    with pytest.raises(IQConnectionError):
+        discover_iq_address('"%s' % str(tmp_path))
+
+
 def test_remote_stcbll_ini_public_url_preferred(tmp_path):
     _write(str(tmp_path / "stcbll.ini"), """\
         [enhancedResults]

@@ -92,7 +92,7 @@ def _outer_prefix(node):
 def main():
     iq = IQClient(timeout=60)
 
-    my_tests = iq.list_tests(owner="she83111")
+    my_tests = iq.list_tests(owner="test-owner")
     if not my_tests:
         print("No tests found for that owner.")
         return

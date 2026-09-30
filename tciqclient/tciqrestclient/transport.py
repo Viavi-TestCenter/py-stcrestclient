@@ -27,7 +27,7 @@ from .exceptions import IQRequestError
 class Transport:
     """Minimal JSON-in/JSON-out HTTP client bound to one base URL."""
 
-    def __init__(self, base_url, timeout=10, session=None, debug=False,
+    def __init__(self, base_url, timeout=120, session=None, debug=False,
                  auth_token=None, verify=None):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout

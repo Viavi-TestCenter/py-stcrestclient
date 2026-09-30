@@ -14,6 +14,9 @@ ENV_VARS = (
     "TCIQ_AION_URL", "TCIQ_AION_USERNAME", "TCIQ_AION_PASSWORD",
     "TCIQ_AION_NODE_NAME", "TCIQ_AION_PORT_NAME", "TCIQ_AION_CA_CERT",
     "TCIQ_VERIFY_SSL",
+    # Bare (no TCIQ_ prefix) fallback names consolidated with
+    # stcrestclient's own AionStcHttp -- see config.py.
+    "AION_URL", "AION_USERNAME", "AION_PASSWORD",
 )
 
 
@@ -287,6 +290,105 @@ def test_env_only_aion_used_when_nothing_else_resolves(monkeypatch):
     cfg = resolve_config(load_env=False)
     assert cfg.base_url == "http://from-aion:9200"
     assert len(calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# Consolidated AION env vars: TCIQ_AION_URL/TCIQ_AION_USERNAME/
+# TCIQ_AION_PASSWORD stay primary, but a bare (no TCIQ_ prefix)
+# AION_URL/AION_USERNAME/AION_PASSWORD -- stcrestclient's own AionStcHttp
+# convention -- is now tried as a lower-priority fallback, so a machine
+# already configured for stcrestclient's AION login needs no extra
+# TCIQ_-prefixed config to also get tciqrestclient's AION discovery
+# working. One-way only: stcrestclient/aionstchttp.py itself is
+# untouched and does not fall back to TCIQ_AION_*.
+# ---------------------------------------------------------------------------
+
+def test_bare_aion_env_vars_used_when_tciq_prefixed_unset(monkeypatch):
+    monkeypatch.setenv("AION_URL", "https://aion.example.com")
+    monkeypatch.setenv("AION_USERNAME", "bare-user")
+    monkeypatch.setenv("AION_PASSWORD", "bare-pass")
+    calls = _stub_aion(monkeypatch)
+    cfg = resolve_config(load_env=False)
+    assert cfg.base_url == "http://from-aion:9200"
+    assert len(calls) == 1
+    (args, kwargs) = calls[0]
+    assert args[:3] == ("https://aion.example.com", "bare-user", "bare-pass")
+
+
+def test_tciq_prefixed_aion_env_vars_win_over_bare(monkeypatch):
+    """When both are set, TCIQ_AION_* -- this package's own, dedicated
+    name -- wins over the bare fallback, field by field."""
+    monkeypatch.setenv("TCIQ_AION_URL", "https://tciq-aion.example.com")
+    monkeypatch.setenv("TCIQ_AION_USERNAME", "tciq-user")
+    monkeypatch.setenv("TCIQ_AION_PASSWORD", "tciq-pass")
+    monkeypatch.setenv("AION_URL", "https://bare-aion.example.com")
+    monkeypatch.setenv("AION_USERNAME", "bare-user")
+    monkeypatch.setenv("AION_PASSWORD", "bare-pass")
+    calls = _stub_aion(monkeypatch)
+    resolve_config(load_env=False)
+    (args, kwargs) = calls[0]
+    assert args[:3] == (
+        "https://tciq-aion.example.com", "tciq-user", "tciq-pass")
+
+
+def test_bare_aion_env_vars_fill_in_per_field_independently(monkeypatch):
+    """Each of the three AION fields resolves independently -- confirmed
+    existing behavior for kwarg-vs-env mixing, now also true across the
+    two env-var conventions: TCIQ_AION_URL wins for the URL specifically,
+    while AION_USERNAME/AION_PASSWORD (no TCIQ_AION_* set for those two)
+    fill in the rest."""
+    monkeypatch.setenv("TCIQ_AION_URL", "https://tciq-aion.example.com")
+    monkeypatch.setenv("AION_USERNAME", "bare-user")
+    monkeypatch.setenv("AION_PASSWORD", "bare-pass")
+    calls = _stub_aion(monkeypatch)
+    resolve_config(load_env=False)
+    (args, kwargs) = calls[0]
+    assert args[:3] == (
+        "https://tciq-aion.example.com", "bare-user", "bare-pass")
+
+
+def test_explicit_aion_kwargs_win_over_both_env_conventions(monkeypatch):
+    monkeypatch.setenv("TCIQ_AION_URL", "https://tciq-aion.example.com")
+    monkeypatch.setenv("TCIQ_AION_USERNAME", "tciq-user")
+    monkeypatch.setenv("TCIQ_AION_PASSWORD", "tciq-pass")
+    monkeypatch.setenv("AION_URL", "https://bare-aion.example.com")
+    monkeypatch.setenv("AION_USERNAME", "bare-user")
+    monkeypatch.setenv("AION_PASSWORD", "bare-pass")
+    calls = _stub_aion(monkeypatch)
+    resolve_config(
+        aion_url="https://explicit.example.com", aion_username="explicit-user",
+        aion_password="explicit-pass", load_env=False)
+    (args, kwargs) = calls[0]
+    assert args[:3] == (
+        "https://explicit.example.com", "explicit-user", "explicit-pass")
+
+
+def test_bare_aion_env_only_still_loses_to_env_base_url(monkeypatch):
+    """Same "lowest priority" precedence as the TCIQ_AION_*-only case
+    (see test_env_only_aion_still_loses_to_env_base_url above) applies
+    identically when AION is resolved purely from the bare env vars --
+    it's still not explicit intent for this call (no aion_url= kwarg)."""
+    monkeypatch.setenv("TCIQ_BASE_URL", "http://from-env:1111")
+    monkeypatch.setenv("AION_URL", "https://aion.example.com")
+    monkeypatch.setenv("AION_USERNAME", "u")
+    monkeypatch.setenv("AION_PASSWORD", "p")
+    calls = _stub_aion(monkeypatch)
+    cfg = resolve_config(load_env=False)
+    assert cfg.base_url == "http://from-env:1111"
+    assert len(calls) == 0  # never attempted -- would have been discarded anyway
+
+
+def test_bare_aion_env_vars_do_not_leak_when_unset(monkeypatch):
+    """Sanity check on the test isolation itself: with none of the six
+    AION-related env vars set, AION discovery is never attempted at all
+    (guards against the bare fallback accidentally picking up a real
+    AION_URL/AION_USERNAME/AION_PASSWORD left set on the machine actually
+    running these tests -- see conftest.py's iq_client fixture and this
+    file's own ENV_VARS list, both of which now clear these three too)."""
+    calls = _stub_aion(monkeypatch)
+    with pytest.raises(IQConfigError):
+        resolve_config(load_env=False)
+    assert len(calls) == 0
 
 
 def test_loads_dotenv_file(tmp_path, monkeypatch):

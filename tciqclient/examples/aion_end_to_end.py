@@ -43,7 +43,7 @@ from tciqrestclient.exceptions import (
 )
 from tciqrestclient.view_query_builder import SUPPORTED_VIEW_TYPES
 
-OWNER = "she83111"
+OWNER = "owner-name"
 VIEW_NAME = "Detailed Stream Results"
 
 

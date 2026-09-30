@@ -1,34 +1,3 @@
-"""List every database (test) on a lab-hosted TestCenter IQ deployment
-("labserver") -- a direct, no-discovery connection: you already know the
-exact host and port, so there's no install-dir file to read (like
-discover_local.py) and no AION login/instance-lookup (like
-discover_aion.py). Just host + port + which scheme it speaks.
-
-CONFIRMED against a real labserver, iqteam03.es.cal.viavi.io:9199 -- and
-its own scheme CHANGED between two checks in the same week: on
-2026-09-22 (morning) it was plain HTTP, no redirect. By 2026-09-22
-(later the same day) an nginx reverse proxy had been put in front of it
-that 307-redirects *all* HTTP requests on that same host:port to HTTPS,
-and that HTTPS endpoint uses a self-signed certificate. This isn't a
-one-time fluke to special-case -- a lab's own TLS setup is real
-infrastructure someone else administers and can change out from under
-you, and self-signed certs are common for internal-only lab gear. Two
-real consequences, both handled below:
-  1. `requests` (which tciqrestclient uses internally) follows redirects by
-     default, so even the *plain HTTP* request above transparently
-     became an HTTPS one -- the SSLError you'd see either way names the
-     real problem (certificate verification), not "HTTP doesn't work".
-  2. A self-signed cert fails normal verification -- IQClient's own
-     verify= parameter (added for exactly this real case) handles it:
-     False skips verification entirely (only for a deployment you
-     already trust on your own network), or pass a CA bundle file path
-     instead if your lab issues certs from an internal CA.
-
-Configure via LABSERVER_HOST/LABSERVER_PORT/LABSERVER_USE_HTTPS/
-LABSERVER_VERIFY_SSL below, or TCIQ_HOST/TCIQ_PORT (+ TCIQ_VERIFY_SSL for
-verify=) in the environment or a .env file -- see .env.example.
-use_https= itself still has no environment-variable equivalent.
-"""
 from tciqrestclient import IQClient
 from tciqrestclient.exceptions import IQRequestError
 

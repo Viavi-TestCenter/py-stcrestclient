@@ -1,19 +1,3 @@
-"""Database lifecycle management -- IQ-PYTHON-010: rename_test()/
-delete_test(), so CI/CD pipelines and lab management scripts can clean up
-the IQ database store without any manual GUI interaction.
-
-*** DANGER: both operations are real and irreversible against a real
-*** server. delete_test() permanently removes a test's stored results;
-*** there is no undo, no trash/recycle bin, no confirmation from the
-*** server itself. This script will NOT run against anything until you
-*** deliberately edit TARGET_DATABASE_ID below to a disposable test
-*** database's id -- never point this at anything you (or anyone else)
-*** still need. It also requires typing a literal confirmation phrase
-*** before either operation actually runs, on top of that.
-
-Get a database id to test with from list_tests_by_owner.py's output, or
-create a throwaway test on your server specifically for trying this out.
-"""
 from tciqrestclient import IQClient
 from tciqrestclient.exceptions import IQError, IQRequestError
 

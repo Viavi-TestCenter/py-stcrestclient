@@ -24,8 +24,8 @@ from tciqrestclient.exceptions import IQConfigError, IQConnectionError
 # real credentials here -- use environment variables/.env instead (see
 # the bottom of main() below) for anything beyond a one-off local test.
 AION_URL = "https://aion.example.com"
-AION_USERNAME = "user@example.com"
-AION_PASSWORD = "secret"
+AION_USERNAME = "username"
+AION_PASSWORD = "password"
 
 
 def main():

@@ -37,7 +37,7 @@ from tciqrestclient import IQClient
 from tciqrestclient.exceptions import IQQueryError, IQRequestError, IQViewError
 
 VIEW_NAME = "Detailed Stream Results"
-OWNER = "she83111"
+OWNER = "test-owner"  #: a user with a currently-running test on your server
 
 #: How many times to re-run the query, and how long to wait between
 #: polls -- purely for this example's demo loop; there's no minimum/

@@ -46,7 +46,7 @@ def main():
     # default to list them all -- confirmed 2026-09-03 against a real
     # 500+-view server (see HANDOVER.md section 9).
     iq = IQClient(timeout=180)
-    my_tests = iq.list_tests(owner="she83111")
+    my_tests = iq.list_tests(owner="test-owner")
     if my_tests:
         iq.use_test(my_tests[0]["id"])
     else:

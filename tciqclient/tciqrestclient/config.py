@@ -17,8 +17,18 @@ machine. Recognized variables:
     TCIQ_DEBUG             -- 1/true/yes to print each request's method, URL,
                               and JSON body before sending it.
     TCIQ_AION_URL          -- AION platform base URL for AION-based discovery.
-    TCIQ_AION_USERNAME     -- AION username (email) for AION discovery.
-    TCIQ_AION_PASSWORD     -- AION password for AION discovery.
+                              Falls back to the bare AION_URL env var (no
+                              TCIQ_ prefix -- stcrestclient's own AionStcHttp
+                              convention) if this isn't set, so a machine
+                              already configured for stcrestclient's AION
+                              login needs no extra config here. Consolidated
+                              2026-09-30 -- see HANDOVER.md section 0h.
+    TCIQ_AION_USERNAME     -- AION username (email) for AION discovery. Falls
+                              back to the bare AION_USERNAME env var, same as
+                              TCIQ_AION_URL above.
+    TCIQ_AION_PASSWORD     -- AION password for AION discovery. Falls back to
+                              the bare AION_PASSWORD env var, same as
+                              TCIQ_AION_URL above.
     TCIQ_AION_NODE_NAME    -- Optional AION node name to restrict instance search.
     TCIQ_AION_PORT_NAME    -- Port name under which orion-res appears in AION
                               product-instances (default: 'iq', confirmed
@@ -58,7 +68,7 @@ from . import discovery
 from .exceptions import IQConfigError
 
 #: Used when neither an explicit timeout nor TCIQ_TIMEOUT is given.
-DEFAULT_TIMEOUT = 10.0
+DEFAULT_TIMEOUT = 120.0
 
 #: Env var values (case-insensitive) treated as "true" for TCIQ_DEBUG.
 _TRUTHY = ("1", "true", "yes", "on")
@@ -112,9 +122,13 @@ def resolve_config(base_url=None, host=None, port=None, install_dir=None,
                        When given (along with aion_username/aion_password),
                        orion-res's address is discovered via AION's inventory
                        API instead of stcbll.ini / orion-res.yaml. Falls back
-                       to TCIQ_AION_URL.
-    aion_username   -- AION username (email). Falls back to TCIQ_AION_USERNAME.
-    aion_password   -- AION password. Falls back to TCIQ_AION_PASSWORD.
+                       to TCIQ_AION_URL, then to the bare AION_URL env var
+                       (stcrestclient's own AionStcHttp convention, no TCIQ_
+                       prefix) if that's unset too.
+    aion_username   -- AION username (email). Falls back to TCIQ_AION_USERNAME,
+                       then to the bare AION_USERNAME env var.
+    aion_password   -- AION password. Falls back to TCIQ_AION_PASSWORD, then
+                       to the bare AION_PASSWORD env var.
     aion_node_name  -- Optional AION node name to restrict instance search.
                        Falls back to TCIQ_AION_NODE_NAME.
     aion_port_name  -- Name of the orion-res port entry in AION product-
@@ -145,10 +159,23 @@ def resolve_config(base_url=None, host=None, port=None, install_dir=None,
         # working directory by default when env_file is None.
         load_dotenv(dotenv_path=env_file)
 
-    # Resolve AION params from env when not explicit.
-    resolved_aion_url = aion_url or os.environ.get("TCIQ_AION_URL")
-    resolved_aion_username = aion_username or os.environ.get("TCIQ_AION_USERNAME")
-    resolved_aion_password = aion_password or os.environ.get("TCIQ_AION_PASSWORD")
+    # Resolve AION params from env when not explicit. TCIQ_AION_* is the
+    # primary, dedicated name for this package; stcrestclient's own
+    # bare AION_URL/AION_USERNAME/AION_PASSWORD (no TCIQ_ prefix, used by
+    # AionStcHttp) is tried as a lower-priority fallback -- consolidating
+    # the two so a user who already has those set for stcrestclient gets
+    # AION discovery working here too, with no extra config. One-way only:
+    # stcrestclient/aionstchttp.py itself is untouched and does not fall
+    # back to TCIQ_AION_*.
+    resolved_aion_url = (
+        aion_url or os.environ.get("TCIQ_AION_URL")
+        or os.environ.get("AION_URL"))
+    resolved_aion_username = (
+        aion_username or os.environ.get("TCIQ_AION_USERNAME")
+        or os.environ.get("AION_USERNAME"))
+    resolved_aion_password = (
+        aion_password or os.environ.get("TCIQ_AION_PASSWORD")
+        or os.environ.get("AION_PASSWORD"))
     resolved_aion_node = aion_node_name or os.environ.get("TCIQ_AION_NODE_NAME")
     resolved_aion_port = (aion_port_name
                           or os.environ.get("TCIQ_AION_PORT_NAME")
@@ -156,7 +183,7 @@ def resolve_config(base_url=None, host=None, port=None, install_dir=None,
     resolved_aion_ca = aion_ca_cert or os.environ.get("TCIQ_AION_CA_CERT")
 
     # Resolve timeout early so AION discovery honours the user's configured
-    # value (the requirement mandates a configurable timeout, default 10 s).
+    # value (the requirement mandates a configurable timeout, default 120 s).
     resolved_timeout = timeout
     if resolved_timeout is None:
         env_timeout = os.environ.get("TCIQ_TIMEOUT")

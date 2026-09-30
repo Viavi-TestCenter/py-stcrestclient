@@ -201,6 +201,7 @@ For mode E specifically, also check:
 - `TCIQ_AION_NODE_NAME` actually restricts which node's instance is picked, if you have more than one.
 - `TCIQ_AION_PORT_NAME` (default `iq` — confirmed against a real AION org 2026-09-08; see `HANDOVER.md` §0f) — if your AION deployment labels the port differently, override it and confirm discovery still finds the right instance.
 - A deliberately wrong password raises `IQConnectionError` (not a silent fallback to a stale/cached address).
+- With only bare `AION_URL`/`AION_USERNAME`/`AION_PASSWORD` set (no `TCIQ_` prefix — `stcrestclient`'s own `AionStcHttp` convention) and no `TCIQ_AION_*` at all, discovery still succeeds via the fallback added 2026-09-30 (see `HANDOVER.md` §9's "AION credential env vars consolidated" entry). Setting both should prefer `TCIQ_AION_*`.
 
 ### 3.2 Run every example end-to-end
 
@@ -215,8 +216,8 @@ that needs nothing from you for those 13. The remaining 5
 yet in that suite -- see §1.4's note on adding new examples to it. What
 no amount of mocking can prove, for any of them, is that an example
 still behaves correctly against a *real* server (real response shapes,
-real column names, the four unconfirmed widget builders) -- that's what
-this section is for, and it does need one:
+real column names, the remaining unconfirmed widget builders) -- that's
+what this section is for, and it does need one:
 
 ```bash
 python examples/discover_local.py
@@ -230,10 +231,11 @@ python examples/run_live_query.py        # needs a currently-running test
 python examples/query_modifiers.py
 python examples/run_json_definition_query.py
 python examples/multi_database_query.py  # most useful with 2+ tests for the same owner
-python examples/run_xy_chart_query.py    # see 3.3 -- unconfirmed builder
+python examples/run_xy_chart_query.py    # CONFIRMED working -- see HANDOVER.md §9
 python examples/run_pie_chart_query.py   # see 3.3 -- unconfirmed builder
-python examples/run_histogram_query.py   # see 3.3 -- unconfirmed builder
+python examples/run_histogram_query.py   # CONFIRMED working -- see HANDOVER.md §9
 python examples/run_boxplot_query.py     # see 3.3 -- unconfirmed builder
+python examples/run_chart_query.py       # CONFIRMED working -- see HANDOVER.md §9
 python examples/auto_repair_demo.py
 python examples/generate_report.py
 ```
@@ -255,16 +257,16 @@ For each one, confirm: it runs without raising, the printed output looks
 like real data (not an empty list/dict unless that's genuinely correct),
 and nothing in stderr looks like a swallowed exception.
 
-### 3.3 Validate the four unconfirmed widget query builders
+### 3.3 Validate the remaining unconfirmed widget query builders
 
-`x_y_chart`, `pie_chart`, `histogram`, and `boxplot` were reverse-engineered
-from `magellan-frontend`'s TypeScript, not confirmed against a real
-capture (`single_level_table`/`paged_single_level_table` are the only
-ones that were — see `HANDOVER.md` §9). This is the most important manual
-test if you have server access, because it's the biggest real gap in this
-package's test coverage.
+`pie_chart` and `boxplot` were reverse-engineered from
+`magellan-frontend`'s TypeScript, not confirmed against a real capture
+(`single_level_table`/`paged_single_level_table`, `x_y_chart`, `chart`,
+and `histogram` are the ones that now are — see `HANDOVER.md` §9). This
+is the most important manual test if you have server access, because
+it's the biggest real gap left in this package's test coverage.
 
-For each of the four view types:
+For each of these view types:
 
 1. Open a view of that type in the TestCenter IQ GUI.
 2. Open the browser's DevTools → Network tab, and trigger the query (load
@@ -275,9 +277,9 @@ For each of the four view types:
    with `TCIQ_DEBUG=1`, and compare the request body it prints against
    what the browser sent.
 5. If they differ, that's a real bug in `view_query_builder.py`'s builder
-   for that type (`_build_xy_chart_query`, `_build_pie_chart_query`,
-   `_build_histogram_queries`, or `_build_boxplot_queries`) — fix the
-   builder, not the comparison. Each builder's own docstring lists exactly
+   for that type (`_build_pie_chart_query` or `_build_boxplot_queries`)
+   — fix the builder, not the comparison. Each builder's own docstring
+   lists exactly
    which fields are ASSUMED vs. confirmed, which is usually where the
    divergence will be.
 6. If they match, save the pair (the view export + the request body) as

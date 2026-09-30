@@ -1002,26 +1002,69 @@ def test_query_table_view_live(iq_client, mocked_responses):
         "rxss", "txss"}
 
 
-def test_query_xy_chart_view(iq_client, mocked_responses):
-    # x_y_chart -- reverse-engineered from XYChartWidgetModel.getQueryDef()
-    # (see WIDGET_QUERY_PLAN.md section 2.2), NOT yet confirmed against a
-    # real capture. One query, same shape as table.
-    view = _synthetic_single_kind_view("Synthetic XY Chart", "x_y_chart")
+def _synthetic_xy_chart_view():
+    """A minimal but real-shaped "x_y_chart" view -- no `tables` list at
+    all (CONFIRMED real shape, see HANDOVER.md section 9's "x_y_chart"
+    entry): `details.user_data.series[]` instead, each naming a single
+    `query_provider` directly."""
+    provider = {
+        "name": "synthetic_provider",
+        "base_query": {
+            "multi_result": {"subqueries": [{"alias": "view",
+                                              "subqueries": []}]}
+        },
+        "attribute_query_updates": [
+            {"name": "col_a", "alias_name": "col_a",
+             "query_updates": [
+                 {"key": "multi_result/subqueries/0/projections",
+                  "values": ["raw.col_a as col_a"]}]},
+        ],
+        "fact_query_updates": [], "derived_fact_query_updates": [],
+        "default_order_updates": {},
+    }
+    return {
+        "name": "Synthetic XY Chart",
+        "details": {
+            "view_type": "x_y_chart",
+            "user_data": {"series": [
+                {"query_provider": "synthetic_provider",
+                 "h_axis": {"values": ["col_a"]}, "v_axis": {"values": []},
+                 "filter_columns": []},
+            ]},
+        },
+        "effective_details": {"system_data": {"query_providers": [provider]}},
+    }
+
+
+def test_query_xy_chart_view_returns_rows_dict(iq_client, mocked_responses):
+    view = _synthetic_xy_chart_view()
     mocked_responses.add(responses_lib.GET, BASE + "/views", json=[view])
     mocked_responses.add(
         responses_lib.POST, BASE + "/queries", json=fixtures.QUERY_RESPONSE)
     iq_client.use_test("n43grmtulrhgnkae")
 
-    rows = iq_client.query(name="Synthetic XY Chart", data_type="eot")
+    rows = iq_client.query(name="Synthetic XY Chart")
 
-    assert isinstance(rows, list)
-    assert len(rows) == 3
-    sent_body = json.loads(mocked_responses.calls[-1].request.body)
-    node = sent_body["definition"]["multi_result"]
-    assert "raw.col_a as col_a" in node["subqueries"][0]["projections"]
-    # xy-chart never applies a snapshot filter, even against its eot
-    # table (see _build_xy_chart_query()'s docstring).
-    assert node["filters"] == []
+    assert set(rows) == {"synthetic_provider"}
+    assert len(rows["synthetic_provider"]) == 3
+
+
+def test_query_xy_chart_view_rejects_table_index(iq_client, mocked_responses):
+    view = _synthetic_xy_chart_view()
+    mocked_responses.add(responses_lib.GET, BASE + "/views", json=[view])
+    iq_client.use_test("n43grmtulrhgnkae")
+
+    with pytest.raises(IQViewError, match="table_index"):
+        iq_client.query(name="Synthetic XY Chart", table_index=0)
+
+
+def test_query_xy_chart_view_rejects_live_data(iq_client, mocked_responses):
+    view = _synthetic_xy_chart_view()
+    mocked_responses.add(responses_lib.GET, BASE + "/views", json=[view])
+    iq_client.use_test("n43grmtulrhgnkae")
+
+    with pytest.raises(IQViewError, match="live"):
+        iq_client.query(name="Synthetic XY Chart", test_live=True)
 
 
 def test_query_pie_chart_view(iq_client, mocked_responses):
@@ -1047,21 +1090,77 @@ def test_query_pie_chart_view(iq_client, mocked_responses):
     assert "view.test_snapshot_name = 'Snap1'" in node["filters"]
 
 
+def _synthetic_histogram_view():
+    """A minimal but real-shaped "histogram" view -- no `tables` list at
+    all (CONFIRMED real shape, see HANDOVER.md section 9's "histogram"
+    entry): `details.user_data.statistics`/`group_by` instead, plus a
+    matching `effective_details.system_data.statistics` lookup table
+    alongside the usual `query_providers`."""
+    provider = {
+        "name": "synthetic_provider",
+        "base_query": {
+            "multi_result": {"subqueries": [{"alias": "view",
+                                              "subqueries": []}]}
+        },
+        "attribute_query_updates": [
+            {"name": "col_a", "alias_name": "col_a",
+             "query_updates": [
+                 {"key": "multi_result/subqueries/0/projections",
+                  "values": ["raw.col_a as col_a"]}]},
+        ],
+        "fact_query_updates": [], "derived_fact_query_updates": [],
+        "default_order_updates": {},
+    }
+    return {
+        "name": "Synthetic Histogram",
+        "details": {
+            "view_type": "histogram",
+            "user_data": {
+                "statistics": [{"statistics": "synthetic_provider.col_a",
+                                 "group_by": "col_a"}],
+                "group_by": "col_a",
+            },
+        },
+        "effective_details": {"system_data": {
+            "query_providers": [provider],
+            "statistics": [{"name": "synthetic_provider.col_a",
+                             "query_provider": "synthetic_provider",
+                             "stat_name": "col_a"}],
+        }},
+    }
+
+
 def test_query_histogram_view_returns_rows_dict(iq_client, mocked_responses):
-    # histogram -- reverse-engineered from HistogramWidgetModel.
-    # buildQueryDefinitions() (see WIDGET_QUERY_PLAN.md section 2.4), NOT
-    # yet confirmed against a real capture. One query per provider -- this
-    # synthetic view only has one, so exactly one entry back.
-    view = _synthetic_single_kind_view("Synthetic Histogram", "histogram")
+    # One query per provider -- this synthetic view only has one, so
+    # exactly one entry back.
+    view = _synthetic_histogram_view()
     mocked_responses.add(responses_lib.GET, BASE + "/views", json=[view])
     mocked_responses.add(
         responses_lib.POST, BASE + "/queries", json=fixtures.QUERY_RESPONSE)
     iq_client.use_test("n43grmtulrhgnkae")
 
-    rows = iq_client.query(name="Synthetic Histogram", data_type="eot")
+    rows = iq_client.query(name="Synthetic Histogram")
 
     assert set(rows) == {"synthetic_provider"}
     assert len(rows["synthetic_provider"]) == 3
+
+
+def test_query_histogram_view_rejects_table_index(iq_client, mocked_responses):
+    view = _synthetic_histogram_view()
+    mocked_responses.add(responses_lib.GET, BASE + "/views", json=[view])
+    iq_client.use_test("n43grmtulrhgnkae")
+
+    with pytest.raises(IQViewError, match="table_index"):
+        iq_client.query(name="Synthetic Histogram", table_index=0)
+
+
+def test_query_histogram_view_rejects_live_data(iq_client, mocked_responses):
+    view = _synthetic_histogram_view()
+    mocked_responses.add(responses_lib.GET, BASE + "/views", json=[view])
+    iq_client.use_test("n43grmtulrhgnkae")
+
+    with pytest.raises(IQViewError, match="live"):
+        iq_client.query(name="Synthetic Histogram", test_live=True)
 
 
 # -- 2026-09-04 final-audit coverage gaps -----------------------------------
@@ -1400,3 +1499,152 @@ def test_list_view_columns_test_live_maps_to_data_type(
     # tables, not the same one twice.
     assert len(live_columns) == 44
     assert len(eot_columns) == 40
+
+
+# -- "chart" view_type: query(name=...) dispatch -- see
+# view_query_builder module docstring's "chart" section --------------------
+
+def _synthetic_chart_view():
+    """One real-shaped numeric series ("rate") plus the "Test Events"
+    plotlines marker series every real chart view also carries -- same
+    shape as test_view_query_builder.py's own _synthetic_chart_view(),
+    kept as a separate local copy per this file's existing convention
+    (see _synthetic_boxplot_view() above)."""
+    return {
+        "name": "Synthetic Chart",
+        "details": {"view_type": "chart", "user_data": {"series": [
+            {"name": "rate", "chart_type": "spline"},
+            {"name": "events.name", "chart_type": "plotlines"},
+        ]}},
+        "effective_details": {"system_data": {
+            "series": [{
+                "name": "rate",
+                "query_details": [{
+                    "sampling_duration_provider": "duration_provider",
+                    "series_query_provider": "aggregate",
+                    "sampling_duration_multiplier": 1.0,
+                }],
+                "series_query_providers": [{
+                    "name": "aggregate",
+                    "completed_data": {
+                        "base_query_name": "base_completed",
+                        "query_updates": [
+                            {"key": "multi_result/subqueries/0/projections",
+                             "values": ["avg(raw.rate) as rate",
+                                        "interval(raw.ts, '{duration}') as interval"]},
+                            {"key": "multi_result/projections",
+                             "values": ["sum(leaf.rate) as value"]},
+                        ],
+                    },
+                    "live_data": {
+                        "base_query_name": "base_live",
+                        "query_updates": [
+                            {"key": "single_result/projections",
+                             "values": ["max(raw.ts) as timestamp",
+                                        "sum(raw.rate) as value"]},
+                        ],
+                    },
+                }],
+            }],
+            "base_queries": [
+                {"name": "base_completed", "query": {"multi_result": {
+                    "filters": [], "groups": ["leaf.interval"],
+                    "orders": ["leaf.interval ASC"],
+                    "projections": ["leaf.interval as timestamp"],
+                    "subqueries": [{"alias": "leaf", "projections": [],
+                                     "groups": [], "orders": [],
+                                     "filters": []}],
+                }}},
+                {"name": "base_live", "query": {"single_result": {
+                    "filters": [], "groups": [], "orders": [],
+                    "projections": [],
+                }}},
+                {"name": "base_duration_probe", "query": {"multi_result": {
+                    "filters": [], "groups": [], "orders": [],
+                    "projections": ["max(leaf.avg) as sampling_duration"],
+                    "subqueries": [{"alias": "leaf", "projections": [],
+                                     "groups": [], "orders": [],
+                                     "filters": []}],
+                }}},
+            ],
+            "sampling_duration_providers": [{
+                "name": "duration_provider",
+                "base_query_name": "base_duration_probe",
+                "query_updates": [
+                    {"key": "multi_result/subqueries/0/projections",
+                     "values": ["avg(raw.ts) as avg"]},
+                ],
+            }],
+        }},
+    }
+
+
+def test_query_chart_view_completed_runs_probe_then_final_query(
+        iq_client, mocked_responses):
+    view = _synthetic_chart_view()
+    mocked_responses.add(responses_lib.GET, BASE + "/views", json=[view])
+    probe_response = json.loads(json.dumps(fixtures.QUERY_RESPONSE))
+    probe_response["result"]["columns"] = ["sampling_duration"]
+    probe_response["result"]["rows"] = [["0.9"]]
+    final_response = json.loads(json.dumps(fixtures.QUERY_RESPONSE))
+    final_response["result"]["columns"] = ["timestamp", "value"]
+    final_response["result"]["rows"] = [["2026-01-01T00:00:00Z", "42"]]
+    mocked_responses.add(responses_lib.POST, BASE + "/queries",
+                          json=probe_response)
+    mocked_responses.add(responses_lib.POST, BASE + "/queries",
+                          json=final_response)
+    iq_client.use_test("n43grmtulrhgnkae")
+
+    result = iq_client.query(name="Synthetic Chart")
+
+    assert set(result) == {"rate"}
+    assert result["rate"] == [{"timestamp": "2026-01-01T00:00:00Z",
+                                "value": "42"}]
+    post_calls = [c for c in mocked_responses.calls
+                  if c.request.method == "POST"]
+    assert len(post_calls) == 2
+    probe_body = json.loads(post_calls[0].request.body)["definition"]
+    assert probe_body["multi_result"]["subqueries"][0]["projections"] == [
+        "avg(raw.ts) as avg"]
+    final_body = json.loads(post_calls[1].request.body)["definition"]
+    # avg_sampling_time=0.9 * multiplier=1.0 -> ceil -> 1 second.
+    assert "interval(raw.ts, 'PT1S') as interval" in (
+        final_body["multi_result"]["subqueries"][0]["projections"])
+
+
+def test_query_chart_view_live_skips_probe_query(iq_client, mocked_responses):
+    view = _synthetic_chart_view()
+    mocked_responses.add(responses_lib.GET, BASE + "/views", json=[view])
+    final_response = json.loads(json.dumps(fixtures.QUERY_RESPONSE))
+    final_response["result"]["columns"] = ["timestamp", "value"]
+    final_response["result"]["rows"] = [["2026-01-01T00:00:00Z", "42"]]
+    mocked_responses.add(responses_lib.POST, BASE + "/queries",
+                          json=final_response)
+    iq_client.use_test("n43grmtulrhgnkae")
+
+    result = iq_client.query(name="Synthetic Chart", test_live=True)
+
+    assert result["rate"] == [{"timestamp": "2026-01-01T00:00:00Z",
+                                "value": "42"}]
+    # Only one real request -- no probe query needed for live data.
+    post_calls = [c for c in mocked_responses.calls
+                  if c.request.method == "POST"]
+    assert len(post_calls) == 1
+
+
+def test_query_chart_view_rejects_table_index(iq_client, mocked_responses):
+    view = _synthetic_chart_view()
+    mocked_responses.add(responses_lib.GET, BASE + "/views", json=[view])
+    iq_client.use_test("n43grmtulrhgnkae")
+
+    with pytest.raises(IQViewError, match="table_index"):
+        iq_client.query(name="Synthetic Chart", table_index=0)
+
+
+def test_query_chart_view_rejects_snapshot_name(iq_client, mocked_responses):
+    view = _synthetic_chart_view()
+    mocked_responses.add(responses_lib.GET, BASE + "/views", json=[view])
+    iq_client.use_test("n43grmtulrhgnkae")
+
+    with pytest.raises(IQViewError, match="snapshot_name"):
+        iq_client.query(name="Synthetic Chart", snapshot_name="Snap1")

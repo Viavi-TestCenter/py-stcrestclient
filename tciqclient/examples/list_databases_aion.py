@@ -1,23 +1,3 @@
-"""List every database (test) on an AION-hosted TestCenter IQ deployment.
-
-Same idea as list_tests_by_owner.py, but connects via AION discovery
-specifically (see discover_aion.py for that half in isolation) and lists
-every database rather than filtering to one owner.
-
-Configure via TCIQ_AION_URL/TCIQ_AION_USERNAME/TCIQ_AION_PASSWORD (and
-optionally TCIQ_AION_NODE_NAME/TCIQ_AION_PORT_NAME) in the environment or
-a .env file -- see .env.example. Nothing is hardcoded here.
-
-*** A real AION organization can have many candidate orion-res instances
-*** (product-instances entries whose ports include one named "iq", the
-*** default aion_port_name=) -- discovery with no aion_node_name= just
-*** picks whichever comes first, which is not necessarily the instance
-*** that actually has the data you're after. If the list below comes
-*** back empty, that's a strong sign discovery landed on the wrong
-*** instance, not that there are no databases anywhere -- try setting
-*** TCIQ_AION_NODE_NAME to a specific node (see discover_aion.py), or ask
-*** whoever administers your AION org which node/instance to use.
-"""
 from tciqrestclient import IQClient
 from tciqrestclient.exceptions import IQConfigError, IQConnectionError
 
