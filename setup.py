@@ -8,7 +8,7 @@ except ImportError:
 def main():
     setup(
         name='stcrestclient',
-        version= '1.9.9',
+        version= '1.9.10',
         author='VIAVI Solutions',
         author_email='hse.support@viavisolutions.com',
         url='https://github.com/Viavi-TestCenter/py-stcrestclient',
@@ -33,7 +33,7 @@ def main():
                 'tccsh = stcrestclient.tccsh:main',
                 'stcinfo = stcrestclient.systeminfo:main'],
         },
-        install_requires=['requests>=2.7', 'tciqrestclient>=0.1.0,<1.0'],
+        install_requires=['requests>=2.7', 'tciqrestclient>=0.1.0'],
         zip_safe=True,
         )
 
