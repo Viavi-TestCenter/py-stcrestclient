@@ -20,23 +20,21 @@ pip install tciqrestclient
 
 Requires Python 3.8+.
 
-**Don't have this repo cloned?** See
-[`GETTING_STARTED.md`](GETTING_STARTED.md) — it covers installing
-straight from this repo's URL (no manual `git clone` needed) and using
-every feature, entirely self-contained.
-
 ## Quick Start
 
-See [`QUICKSTART.md`](QUICKSTART.md) — five steps from install to your
-first real result, no reading required beyond that page.
+```python
+from tciqrestclient import IQClient
+
+iq = IQClient()                      # discovers orion-res via env/config
+rows = iq.query(name="My View")      # one HTTP request per call
+```
 
 > **Every query is one HTTP request.** "Live" means calling `query()` again
 > when you want fresh data — there is no subscription or long-poll mode.
 
 See [`examples/`](examples/) for one runnable script per use case (named
 views, live queries, each chart widget type, report generation, and both
-discovery modes), or [`QUICKGUIDE.md`](QUICKGUIDE.md) for a detailed,
-task-by-task walkthrough of the whole API with copy-pasteable examples.
+discovery modes).
 
 ## Discovery
 
@@ -69,9 +67,9 @@ names.
 
 ## API Surface
 
-See [`API_REFERENCE.md`](API_REFERENCE.md) for the complete,
-method-by-method reference (every parameter, return shape, and
-exception) — the summary below is just an index.
+The table below is an index of the key methods; see each method's own
+docstring in `tciqrestclient/*.py` for the complete parameter, return
+shape, and exception reference.
 
 Import only from the top-level package:
 
@@ -100,8 +98,7 @@ per real numeric series, e.g. "Port Frame Rate Chart" —
 > real `pie_chart` view has ever been found anywhere to even test
 > against. `single_level_table`/`paged_single_level_table` (the common
 > "table" view type), `x_y_chart`, `chart`, and `histogram` are all
-> confirmed working end-to-end. See `HANDOVER.md` §9 ("Widget query
-> builders") for the root cause and status of each type.
+> confirmed working end-to-end.
 
 All errors raise a subclass of `IQError` (`IQConfigError`,
 `IQConnectionError`, `IQRequestError`, `IQQueryError`, `IQViewError`,
@@ -117,23 +114,3 @@ pytest                    # from this directory
 pytest -v                 # verbose
 pytest -s                 # show stdout
 ```
-
-See [`TESTING.md`](TESTING.md) for the full guide — automated tests,
-packaging/build checks, and the manual/integration test plan for
-validating this client against a real `orion-res`/AION server (including
-how to re-capture the fixtures needed to un-skip the 33 tests that depend
-on real captured data).
-
-## Further Reading
-
-See [`QUICKSTART.md`](QUICKSTART.md) for the fastest path to your first
-result, and [`API_REFERENCE.md`](API_REFERENCE.md) for the complete
-symbol-by-symbol reference once you know which method you're looking
-for. See [`GETTING_STARTED.md`](GETTING_STARTED.md) if you (or whoever
-you're handing this to) don't have this repo cloned — it's a fully
-self-contained usage guide that works from just a `pip install`. See
-[`QUICKGUIDE.md`](QUICKGUIDE.md) for the equivalent full task-by-task
-guide assuming you do have the repo (it also links to the runnable
-`examples/` scripts), and [`HANDOVER.md`](../HANDOVER.md) at the
-repository root for the full architecture writeup, per-requirement
-status against the PRD, known gaps, and prioritized next steps.
