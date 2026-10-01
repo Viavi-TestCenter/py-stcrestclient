@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tciqrestclient"
+dynamic = ["version"]
+description = "Python client for TestCenter IQ's orion-res results service -- discover, query, and report on test results as JSON, with nothing hardcoded."
+readme = "README.md"
+requires-python = ">=3.8"
+license = "MIT"
+authors = [{ name = "VIAVI Solutions", email = "hse.support@viavisolutions.com" }]
+keywords = ["TestCenter", "IQ", "orion-res", "network testing", "results"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Testing",
+]
+dependencies = [
+    "requests>=2.25",
+    "python-dotenv>=1.0",
+    "PyYAML>=5.1",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7.0", "responses>=0.23"]
+
+[project.urls]
+Homepage = "https://github.com/Viavi-TestCenter/py-stcrestclient"
+Repository = "https://github.com/Viavi-TestCenter/py-stcrestclient"
+Issues = "https://github.com/Viavi-TestCenter/py-stcrestclient/issues"
+
+[tool.setuptools.dynamic]
+version = { attr = "tciqrestclient.version.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["tciqrestclient*"]
