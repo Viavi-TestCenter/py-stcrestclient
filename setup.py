@@ -8,7 +8,7 @@ except ImportError:
 def main():
     setup(
         name='stcrestclient',
-        version= '1.9.10',
+        version= '1.9.9',
         author='VIAVI Solutions',
         author_email='hse.support@viavisolutions.com',
         url='https://github.com/Viavi-TestCenter/py-stcrestclient',
