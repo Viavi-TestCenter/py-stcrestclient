@@ -1,8 +1,16 @@
-import os, sys
+import io
+import os
 try:
     from setuptools import setup
 except ImportError:
     from distutils.core import setup
+
+
+def read_long_description():
+    readme = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          'README.md')
+    with io.open(readme, encoding='utf-8') as f:
+        return f.read()
 
 
 def main():
@@ -13,7 +21,8 @@ def main():
         author_email='hse.support@viavisolutions.com',
         url='https://github.com/Viavi-TestCenter/py-stcrestclient',
         description='stcrestclient: Client modules for STC ReST API',
-        long_description = 'See https://github.com/Viavi-TestCenter/py-stcrestclient#python-stc-rest-api-client-stcrestclient',
+        long_description=read_long_description(),
+        long_description_content_type='text/markdown',
         license='http://www.opensource.org/licenses/mit-license.php',
         keywords='TestCenter API',
         classifiers=['Development Status :: 5 - Production/Stable',
