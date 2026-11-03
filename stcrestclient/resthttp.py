@@ -319,6 +319,7 @@ class RestHttp(object):
             with open(save_path, 'wb') as f:
                 for buff in rsp.iter_content(chunk_size=16384):
                     f.write(buff)
+                    file_size_dl += len(buff)
         except Exception as e:
             raise RuntimeError('could not download file: ' + str(e))
         finally:
